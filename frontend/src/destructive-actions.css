@@ -1,0 +1,33 @@
+:root {
+  --destructive: #b42318;
+  --destructive-hover: #8f1c13;
+  --destructive-soft: #fff1f0;
+}
+.revert-button {
+  background: var(--destructive);
+  border-color: var(--destructive);
+  color: #fff;
+}
+.revert-button:hover,
+.revert-button:focus-visible {
+  background: var(--destructive-hover);
+  border-color: var(--destructive-hover);
+  color: #fff;
+  outline: 2px solid #f3b7b2;
+  outline-offset: 2px;
+}
+.revert-modal > svg {
+  color: var(--destructive);
+}
+.revert-modal .primary {
+  background: var(--destructive) !important;
+  border-color: var(--destructive) !important;
+}
+.revert-modal .primary:hover {
+  background: var(--destructive-hover) !important;
+  border-color: var(--destructive-hover) !important;
+}
+.revert-modal .immutable {
+  border-left-color: var(--destructive);
+  background: var(--destructive-soft);
+}

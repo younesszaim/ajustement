@@ -1,0 +1,30 @@
+.row-role {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  border: 1px solid #d4d4d8;
+  border-radius: 10px;
+  padding: 3px 7px;
+}
+.row-role.active {
+  background: #09090b;
+  color: #fff;
+  border-color: #09090b;
+}
+.row-role b {
+  font-size: 8px;
+  border-left: 1px solid currentColor;
+  padding-left: 6px;
+}
+.table-panel tbody tr:has(.row-role.active) {
+  box-shadow: inset 3px 0 #09090b;
+}
+.table-panel tbody tr:has(.row-role:not(.active)) {
+  color: #52525b;
+}
+.table-panel td code {
+  font-size: 10px;
+  white-space: nowrap;
+}

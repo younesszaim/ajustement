@@ -1,0 +1,6 @@
+main:has(> .global-register) > .filter-card,
+main:has(> .global-register) > .table-panel,
+main:has(> .global-register) > .details,
+main:has(> .global-register) > .blank {
+  display: none;
+}

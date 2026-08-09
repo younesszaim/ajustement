@@ -1,0 +1,32 @@
+.search-actions,
+.selected-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.search-actions {
+  justify-content: flex-end;
+}
+.search-actions .outline {
+  height: 38px;
+}
+.selected-actions .outline {
+  height: 38px;
+}
+@media (max-width: 900px) {
+  .search-actions {
+    justify-content: stretch;
+  }
+  .search-actions button {
+    flex: 1;
+  }
+}
+@media (max-width: 600px) {
+  .selected-actions {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+  .detail-head {
+    align-items: flex-start;
+  }
+}

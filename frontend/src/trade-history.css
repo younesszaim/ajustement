@@ -1,0 +1,28 @@
+.trade-history-stats {
+  display: flex;
+  gap: 14px;
+}
+.trade-history-stats span {
+  border: 1px solid #d4d4d8;
+  background: #fff;
+  border-radius: 5px;
+  padding: 5px 8px;
+  color: #71717a;
+  font-size: 11px;
+}
+.trade-history-stats strong {
+  color: #09090b;
+  margin-right: 3px;
+}
+.history .register-pair:last-child {
+  margin-bottom: 0;
+}
+@media (max-width: 600px) {
+  .history-head {
+    gap: 10px;
+  }
+  .trade-history-stats {
+    flex-direction: column;
+    gap: 5px;
+  }
+}

@@ -1,0 +1,10 @@
+/* Confirmation dialogs must always sit above adjustment and batch workspaces. */
+.modal-back {
+  z-index: 40;
+  background: rgba(0, 48, 37, 0.68);
+  backdrop-filter: blur(2px);
+}
+.modal-back .modal {
+  box-shadow: 0 28px 90px rgba(0, 35, 27, 0.42);
+  border: 1px solid var(--cacib-border);
+}

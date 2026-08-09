@@ -1,0 +1,121 @@
+:root {
+  --cacib-green: #007a5e;
+  --cacib-green-dark: #005b46;
+  --cacib-green-deep: #004b3a;
+  --cacib-green-soft: #edf7f3;
+  --cacib-green-muted: #d8eee6;
+  --cacib-border: #b8d9cc;
+}
+.mark,
+.env,
+.primary,
+.batch-count {
+  background: var(--cacib-green) !important;
+  border-color: var(--cacib-green) !important;
+  color: #fff !important;
+}
+.primary:hover {
+  background: var(--cacib-green-dark) !important;
+  border-color: var(--cacib-green-dark) !important;
+}
+.control:focus-within {
+  outline-color: var(--cacib-green);
+}
+.workspace-tabs button.active,
+nav button.active {
+  color: var(--cacib-green-dark);
+  border-bottom-color: var(--cacib-green);
+}
+.date-scope button.active,
+.date-scope label.active {
+  background: var(--cacib-green);
+  color: #fff;
+}
+.status.adjusted,
+.active-row,
+.adjusted-flag {
+  background: var(--cacib-green);
+  border-color: var(--cacib-green);
+  color: #fff;
+}
+.row-role.active {
+  background: var(--cacib-green);
+  border-color: var(--cacib-green);
+  color: #fff;
+}
+.table-panel tbody tr:has(.row-role.active) {
+  box-shadow: inset 3px 0 var(--cacib-green);
+}
+tbody tr:hover,
+tbody tr.selected {
+  background: var(--cacib-green-soft);
+}
+.lineage-row.active {
+  background: var(--cacib-green-soft);
+  box-shadow: inset 3px 0 var(--cacib-green);
+}
+.lineage-row.active i,
+.timeline-dot {
+  background: var(--cacib-green);
+  border-color: var(--cacib-green);
+}
+.lineage-row b {
+  background: var(--cacib-green);
+}
+.record,
+.badge {
+  border-color: var(--cacib-border);
+}
+.chip {
+  border-color: var(--cacib-border);
+  background: var(--cacib-green-soft);
+  color: var(--cacib-green-deep);
+}
+.field.changed {
+  background: var(--cacib-green-soft);
+}
+.row-card.adjusted {
+  border-color: var(--cacib-green);
+}
+.safe,
+.apply-row > span,
+.lineage-note {
+  color: var(--cacib-green-deep);
+}
+.calculation .done > span {
+  background: var(--cacib-green);
+  border-color: var(--cacib-green);
+}
+.calculation .running > span {
+  border-color: var(--cacib-green);
+}
+.batch-panel {
+  border-color: var(--cacib-green);
+}
+.immutable,
+.history-main blockquote,
+.revert-link {
+  border-left-color: var(--cacib-green);
+}
+.history-entry:not(.revert-entry) .timeline-dot {
+  outline-color: var(--cacib-green);
+}
+.outline:hover,
+.ghost:hover,
+.revert-button:hover,
+.close-adjustment:hover {
+  border-color: var(--cacib-green);
+  color: var(--cacib-green-dark);
+  background: var(--cacib-green-soft);
+}
+.notice {
+  border-color: var(--cacib-border);
+  background: var(--cacib-green-soft);
+  color: var(--cacib-green-deep);
+}
+.adjustment-window {
+  border-color: var(--cacib-border);
+}
+a {
+  color: var(--cacib-green);
+}

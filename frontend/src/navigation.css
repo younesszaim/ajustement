@@ -1,0 +1,99 @@
+.workspace-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid #e4e4e7;
+  margin: -8px 0 25px;
+}
+.workspace-tabs button {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #71717a;
+  font-weight: 600;
+  padding: 11px 14px;
+  margin-bottom: -1px;
+}
+.workspace-tabs button.active {
+  color: #09090b;
+  border-bottom-color: #09090b;
+}
+.date-scope > span {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.date-scope > div {
+  display: flex;
+  height: 37px;
+  border: 1px solid #d4d4d8;
+  border-radius: 5px;
+  overflow: hidden;
+  background: #fff;
+}
+.date-scope button,
+.date-scope label {
+  border: 0;
+  background: #fff;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #71717a;
+  white-space: nowrap;
+}
+.date-scope button {
+  border-right: 1px solid #d4d4d8;
+}
+.date-scope button.active,
+.date-scope label.active {
+  background: #09090b;
+  color: #fff;
+}
+.date-scope input {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  height: 100%;
+  width: 130px;
+}
+.global-filters {
+  grid-template-columns: 1fr 315px 290px;
+}
+@media (max-width: 900px) {
+  .global-filters {
+    grid-template-columns: 1fr 1fr;
+  }
+  .global-filters > div:first-child {
+    grid-column: 1/-1;
+  }
+}
+@media (max-width: 600px) {
+  .workspace-tabs button {
+    flex: 1;
+    padding-inline: 5px;
+  }
+  .global-filters {
+    grid-template-columns: 1fr;
+  }
+  .global-filters > div:first-child {
+    grid-column: auto;
+  }
+  .date-scope > div {
+    height: auto;
+    flex-direction: column;
+  }
+  .date-scope button {
+    height: 36px;
+    border-right: 0;
+    border-bottom: 1px solid #d4d4d8;
+  }
+  .date-scope label {
+    height: 36px;
+  }
+  .date-scope input {
+    flex: 1;
+    width: auto;
+  }
+}

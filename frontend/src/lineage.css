@@ -1,0 +1,126 @@
+.status,
+.active-row {
+  display: inline-flex;
+  border: 1px solid #d4d4d8;
+  border-radius: 10px;
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 600;
+}
+.status.adjusted,
+.active-row {
+  background: #09090b;
+  color: #fff;
+  border-color: #09090b;
+}
+.summary-lead > div {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+}
+.adjusted-flag {
+  font-size: 9px;
+  font-weight: 700;
+  background: #09090b;
+  color: #fff;
+  padding: 3px 7px;
+  border-radius: 4px;
+}
+.lineage {
+  margin-top: 25px;
+  border-top: 1px solid #e4e4e7;
+  padding-top: 20px;
+}
+.lineage-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  margin-bottom: 12px;
+}
+.lineage-head h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.lineage-head p {
+  margin: 4px 0 0;
+  color: #71717a;
+}
+.lineage-head > span {
+  color: #71717a;
+  font-size: 11px;
+}
+.lineage-table {
+  border: 1px solid #e4e4e7;
+  border-radius: 6px;
+  overflow: auto;
+}
+.lineage-row {
+  min-width: 900px;
+  display: grid;
+  grid-template-columns: 150px 190px 200px 120px 120px 1fr;
+  align-items: center;
+  min-height: 42px;
+  padding: 0 12px;
+  border-bottom: 1px solid #f0f0f1;
+}
+.lineage-row:last-child {
+  border-bottom: 0;
+}
+.lineage-row.headings {
+  min-height: 34px;
+  background: #fafafa;
+  color: #71717a;
+  font-size: 10px;
+  font-weight: 600;
+}
+.lineage-row.active {
+  background: #f4f4f5;
+  box-shadow: inset 3px 0 #09090b;
+}
+.lineage-row > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+}
+.lineage-row i {
+  width: 8px;
+  height: 8px;
+  border: 1px solid #a1a1aa;
+  border-radius: 50%;
+}
+.lineage-row.active i {
+  background: #09090b;
+  border-color: #09090b;
+}
+.lineage-row b {
+  font-size: 8px;
+  background: #09090b;
+  color: #fff;
+  border-radius: 3px;
+  padding: 2px 4px;
+}
+.lineage-row code {
+  font-size: 10px;
+}
+.lineage-row time {
+  color: #71717a;
+  font-size: 11px;
+}
+.lineage-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #52525b;
+  margin: 11px 0 0;
+  font-size: 11px;
+}
+@media (max-width: 700px) {
+  .lineage {
+    margin-inline: -10px;
+  }
+  .lineage-head,
+  .lineage-note {
+    margin-inline: 10px;
+  }
+}

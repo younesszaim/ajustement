@@ -1,0 +1,83 @@
+.register-pair {
+  position: relative;
+  margin-bottom: 18px;
+}
+.register-pair > .history-entry .history-main {
+  margin-bottom: 0;
+}
+.register-pair.is-reverted > .history-entry {
+  opacity: 0.78;
+}
+.register-pair.is-reverted .history-title .badge {
+  background: #fff1f0;
+  border-color: #e6a39d;
+  color: #9f1d14;
+}
+.linked-revert {
+  margin-left: 54px;
+  border: 1px solid #e6a39d;
+  border-top: 0;
+  border-radius: 0 0 7px 7px;
+  background: #fff8f7;
+  padding: 13px 15px;
+}
+.link-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #9f1d14;
+}
+.link-line > span {
+  font-size: 18px;
+}
+.link-line time {
+  margin-left: auto;
+  color: #71717a;
+  font-size: 11px;
+}
+.linked-revert-meta {
+  display: flex;
+  gap: 24px;
+  margin: 9px 0;
+  color: #52525b;
+}
+.restore-changes {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+.restore-changes > span {
+  border: 1px solid #edc6c2;
+  background: #fff;
+  border-radius: 4px;
+  padding: 5px 7px;
+  font-size: 11px;
+}
+.linked-revert > small {
+  display: block;
+  color: #71717a;
+  margin-top: 9px;
+}
+.register-pair.is-committed > .history-entry .history-title .badge {
+  background: var(--cacib-green-soft);
+  border-color: var(--cacib-border);
+  color: var(--cacib-green-deep);
+}
+@media (max-width: 650px) {
+  .linked-revert {
+    margin-left: 32px;
+  }
+  .link-line {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .link-line time {
+    width: 100%;
+    margin-left: 26px;
+  }
+  .linked-revert-meta {
+    flex-direction: column;
+    gap: 5px;
+  }
+}

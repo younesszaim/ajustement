@@ -1,0 +1,2 @@
+-- Review and map names/types to production Vertica before execution.
+CREATE TABLE LIMON_ADJUSTMENT_AUDIT (adjustment_batch_id VARCHAR(64) NOT NULL,base_asofdate DATE NOT NULL,base_asofdateflow TIMESTAMP NOT NULL,source_row_id VARCHAR(256) NOT NULL,trade_key VARCHAR(512) NOT NULL,created_at TIMESTAMP NOT NULL,created_by VARCHAR(256) NOT NULL,reason VARCHAR(2000) NOT NULL,changed_fields_json LONG VARCHAR,recalculated_fields_json LONG VARCHAR,idempotency_key VARCHAR(128) NOT NULL,status VARCHAR(32) NOT NULL,CONSTRAINT uq_limon_adjustment_idempotency UNIQUE(idempotency_key));

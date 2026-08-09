@@ -1,0 +1,98 @@
+.batch-panel {
+  border: 1px solid #09090b;
+  background: #fff;
+  border-radius: 7px;
+  margin-top: 14px;
+  overflow: hidden;
+}
+.batch-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 13px 15px;
+  border-bottom: 1px solid #e4e4e7;
+}
+.batch-head > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.batch-head small,
+.batch-items span {
+  display: block;
+  color: #71717a;
+  margin-top: 3px;
+}
+.batch-count {
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #09090b;
+  color: #fff;
+  font-weight: 700;
+}
+.batch-items {
+  padding: 0 15px;
+}
+.batch-items > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid #f0f0f1;
+}
+.batch-items button {
+  border: 0;
+  background: transparent;
+  color: #71717a;
+  font-size: 11px;
+}
+.batch-commit {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 15px;
+  padding: 14px 15px;
+  background: #fafafa;
+}
+.batch-commit label > span {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.batch-commit textarea {
+  width: 100%;
+  min-height: 58px;
+  border: 1px solid #d4d4d8;
+  border-radius: 5px;
+  padding: 8px;
+  resize: vertical;
+}
+.batch-commit > div {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.batch-commit > div > span {
+  font-size: 11px;
+  color: #71717a;
+}
+.preview-actions {
+  display: flex;
+  gap: 8px;
+}
+@media (max-width: 700px) {
+  .batch-commit {
+    grid-template-columns: 1fr;
+  }
+  .batch-commit > div {
+    align-items: stretch;
+  }
+  .preview-actions {
+    flex-direction: column;
+  }
+}

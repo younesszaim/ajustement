@@ -1,0 +1,115 @@
+.batch-head-actions,
+.batch-items > div > div:last-child {
+  display: flex;
+  gap: 7px;
+}
+.batch-preview-back {
+  position: fixed;
+  inset: 0;
+  background: #0009;
+  z-index: 10;
+  padding: 28px;
+  overflow: auto;
+}
+.batch-preview-dialog {
+  max-width: 1180px;
+  margin: auto;
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.batch-preview-dialog > header {
+  height: auto;
+  padding: 20px 22px;
+  border-bottom: 1px solid #e4e4e7;
+}
+.batch-preview-dialog > header h2 {
+  margin: 4px 0;
+  font-size: 20px;
+}
+.batch-preview-dialog > header p {
+  margin: 0;
+  color: #71717a;
+}
+.batch-preview-dialog > header button {
+  border: 0;
+  background: transparent;
+  font-size: 25px;
+}
+.batch-impact {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  padding: 16px 22px;
+  background: #fafafa;
+  border-bottom: 1px solid #e4e4e7;
+}
+.batch-impact > div > span {
+  display: block;
+  font-size: 10px;
+  color: #71717a;
+  margin-bottom: 7px;
+}
+.batch-impact > div > div {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.batch-preview-items {
+  padding: 4px 22px 20px;
+  max-height: 58vh;
+  overflow: auto;
+}
+.batch-preview-items > article {
+  padding: 18px 0;
+  border-bottom: 1px solid #e4e4e7;
+}
+.batch-preview-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 11px;
+}
+.batch-preview-title strong,
+.batch-preview-title span {
+  display: block;
+}
+.batch-preview-title span {
+  color: #71717a;
+  margin-top: 3px;
+}
+.batch-mini-flow {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 9px;
+}
+.batch-preview-dialog > footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 22px;
+  border-top: 1px solid #e4e4e7;
+  background: #fafafa;
+}
+.batch-preview-dialog > footer > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #52525b;
+}
+@media (max-width: 850px) {
+  .batch-preview-back {
+    padding: 10px;
+  }
+  .batch-impact,
+  .batch-mini-flow {
+    grid-template-columns: 1fr;
+  }
+  .batch-preview-items {
+    max-height: none;
+  }
+  .batch-preview-title {
+    align-items: flex-start;
+    gap: 8px;
+  }
+}

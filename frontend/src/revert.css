@@ -1,0 +1,53 @@
+.history-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.revert-button {
+  border: 1px solid #d4d4d8;
+  background: #fff;
+  border-radius: 5px;
+  padding: 7px 10px;
+  font-weight: 600;
+}
+.revert-button:hover {
+  border-color: #09090b;
+}
+.revert-entry .timeline-dot {
+  background: #fff;
+}
+.revert-link {
+  margin-top: 10px;
+  padding: 7px 9px;
+  background: #fafafa;
+  border-left: 2px solid #09090b;
+  font-size: 11px;
+}
+.revert-reason > span {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.revert-reason textarea {
+  width: 100%;
+  min-height: 76px;
+  border: 1px solid #d4d4d8;
+  border-radius: 5px;
+  padding: 9px;
+  resize: vertical;
+}
+.revert-modal > svg {
+  width: 22px;
+  height: 22px;
+}
+@media (max-width: 600px) {
+  .history-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .revert-button {
+    margin-top: 9px;
+    width: 100%;
+  }
+}

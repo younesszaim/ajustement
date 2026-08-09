@@ -1,0 +1,102 @@
+export type RecordType =
+  | "BASE"
+  | "ADJUSTMENT_CANCEL"
+  | "ADJUSTMENT_REPLACEMENT";
+export interface Context {
+  asofdate: string;
+  asofdateflow: string;
+}
+export interface Trade {
+  rowId: string;
+  tradeKey: string;
+  tradeNo: string;
+  foSystem: string;
+  targetInstrumentType: string;
+  isin: string;
+  issue: string;
+  valueDate: string;
+  maturityDate: string;
+  currency: string;
+  amount: number;
+  portfolio: string;
+  counterparty: string;
+  exposureClass: string;
+  hqlaLevel: string;
+  reportingLineAble: string;
+  reportingLineLcr: string;
+  eurAmount0d: number;
+  eurAmount7d: number;
+  eurAmount30d: number;
+  eurAmount3m: number;
+  lcrInflow: number;
+  lcrOutflow: number;
+  reserve: number;
+  recordType: RecordType;
+  isAdjusted?: boolean;
+  adjustmentCount?: number;
+  activeRecordType?: RecordType;
+  lineageRole?: "ORIGINAL" | "REVERSAL" | "ADJUSTED";
+  isActive?: boolean;
+  adjustmentBatchId?: string | null;
+  lineageTimestamp?: string | null;
+  [key: string]: unknown;
+}
+export interface FieldChange {
+  field: string;
+  label: string;
+  oldValue: unknown;
+  newValue: unknown;
+}
+export interface Difference {
+  field: string;
+  label: string;
+  current: unknown;
+  recalculated: unknown;
+  delta?: number;
+}
+export interface Preview {
+  original: Trade;
+  cancellation: Trade;
+  replacement: Trade;
+  changedFields: FieldChange[];
+  impactedStages: string[];
+  recalculatedFields: string[];
+  differences: Difference[];
+  rowVersion: string;
+}
+export interface BatchPreview {
+  items: Preview[];
+  tradeCount: number;
+  insertedRecords: number;
+  impactedStages: string[];
+  recalculatedFields: string[];
+  aggregateDeltas: { field: string; label: string; delta: number }[];
+}
+export interface TradeLineage {
+  isAdjusted: boolean;
+  adjustmentCount: number;
+  activeRow: Trade;
+  rows: {
+    role: "ORIGINAL" | "REVERSAL" | "ADJUSTED";
+    isActive: boolean;
+    adjustmentBatchId: string | null;
+    timestamp: string | null;
+    row: Trade;
+  }[];
+}
+export interface HistoryItem {
+  adjustmentBatchId: string;
+  timestamp: string;
+  user: string;
+  reason: string;
+  baseAsOfDate: string;
+  baseAsOfDateFlow: string;
+  status: string;
+  actionType?: "ADJUSTMENT" | "REVERT";
+  revertedAdjustmentBatchId?: string | null;
+  changedFields: FieldChange[];
+  recalculatedFields: string[];
+  original: Trade;
+  cancellation: Trade;
+  replacement: Trade;
+}
