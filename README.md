@@ -1,4 +1,4 @@
-# LiMon Adjustment Manager
+# Adjustment Manager
 
 An internal Finance workspace for version-scoped LiMon trade adjustments. It searches an exact `asofdate` + `asofdateflow`, previews dependency-aware recalculation, and records every change as an append-only cancellation plus replacement pair. Original production facts are never updated.
 
