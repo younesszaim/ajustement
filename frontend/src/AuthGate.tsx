@@ -56,18 +56,35 @@ export function AuthGate() {
       <span className="auth-eyebrow">MOCK CACIB SSO</span>
       <h1>Sign in to LiMon</h1>
       <p>Select a development identity to test application access and roles.</p>
-      <div className="mock-identities">
-        {users.data?.map((user) => (
-          <button
-            key={user.username}
-            disabled={login.isPending}
-            onClick={() => login.mutate(user.username)}
-          >
-            <strong>{user.displayName}</strong>
-            <span>{user.roles.join(", ") || "No application access"}</span>
-          </button>
-        ))}
-      </div>
+      {users.isLoading ? (
+        <div className="auth-loading">
+          <Loader2 className="spin" /> Loading development identities…
+        </div>
+      ) : users.isError ? (
+        <div className="auth-backend-error" role="alert">
+          <ShieldAlert />
+          <div>
+            <strong>Mock SSO is unavailable</strong>
+            <span>
+              Restart the FastAPI backend with AUTH_MODE=mock, then refresh this
+              page. {users.error.message}
+            </span>
+          </div>
+        </div>
+      ) : (
+        <div className="mock-identities">
+          {users.data?.map((user) => (
+            <button
+              key={user.username}
+              disabled={login.isPending}
+              onClick={() => login.mutate(user.username)}
+            >
+              <strong>{user.displayName}</strong>
+              <span>{user.roles.join(", ") || "No application access"}</span>
+            </button>
+          ))}
+        </div>
+      )}
       {login.isError && <p className="auth-error">{login.error.message}</p>}
     </AuthSurface>
   );
