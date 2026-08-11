@@ -5,6 +5,7 @@ from app.models import (
     CommitRequest,
     LimonContext,
     RevertAdjustmentRequest,
+    ProxyFields,
 )
 from app.repository import FLOW1, MockRepository
 from app.services import AdjustmentService, ConflictError, DomainError
@@ -40,6 +41,44 @@ def test_amount_change_recalculates_the_populated_bucket(setup):
     _, service, context = setup
     preview = service.preview(context, "ROW-0001", {"amount": 1_250_000})
     assert preview["replacement"]["eurAmount30d"] == 1_250_000
+
+
+def test_trade_cancellation_preview_creates_only_one_reversal(setup):
+    _, service, context = setup
+    preview = service.preview_cancellation(context, "ROW-0001")
+
+    assert preview["actionType"] == "TRADE_CANCELLATION"
+    assert preview["replacement"] is None
+    assert len(preview["outputRows"]) == 1
+    assert preview["outputRows"][0]["recordType"] == "ADJUSTMENT_CANCEL"
+    assert preview["outputRows"][0]["amount"] == -1_000_000
+
+
+def test_proxy_preview_generates_trade_and_calculated_output(setup):
+    _, service, context = setup
+    preview = service.preview_proxy(
+        context,
+        "12345678-1234-5678-1234-567812345678",
+        ProxyFields(
+            foSystem="Orchestrade",
+            targetInstrumentType="SECURITY",
+            isin="FRPROXY0001",
+            issue="PROXY_ISSUER",
+            valueDate="2026-08-06",
+            maturityDate="2026-08-20",
+            currency="EUR",
+            amount=500_000,
+            portfolio="LIQUIDITY",
+            counterparty="CP_PROXY",
+        ),
+    )
+
+    proxy = preview["replacement"]
+    assert proxy["tradeNo"] == "PROXY-20260806-12345678"
+    assert proxy["recordType"] == "PROXY"
+    assert proxy["_outputRecordId"] is None
+    assert proxy["eurAmount30d"] == 500_000
+    assert len(preview["outputRows"]) == 1
 
 
 def test_invalid_changes(setup):

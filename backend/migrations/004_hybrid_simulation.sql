@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS adjustment_meta.requests (
     updated_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE(project_id,idempotency_key),
     UNIQUE(project_id,batch_reference),
-    CHECK(action_type IN ('ADJUSTMENT','REVERT')),
+    CHECK(action_type IN ('ADJUSTMENT','TRADE_CANCELLATION','PROXY','REVERT')),
     CHECK(status IN ('PENDING','OUTPUT_COMMITTED','COMMITTED','FAILED','RECONCILIATION_REQUIRED')),
     CHECK(length(btrim(reason)) >= 5),
     CHECK(item_count > 0)
@@ -59,24 +59,24 @@ CREATE TABLE IF NOT EXISTS adjustment_meta.batches (
     inserted_record_count integer NOT NULL,
     UNIQUE(project_id,batch_reference),
     UNIQUE(project_id,idempotency_key),
-    CHECK(action_type IN ('ADJUSTMENT','REVERT')),
+    CHECK(action_type IN ('ADJUSTMENT','TRADE_CANCELLATION','PROXY','REVERT')),
     CHECK(status = 'COMMITTED'),
-    CHECK(inserted_record_count = trade_count * 2)
+    CHECK(inserted_record_count >= trade_count)
 );
 
 CREATE TABLE IF NOT EXISTS adjustment_meta.item_snapshots (
     snapshot_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     adjustment_batch_id uuid NOT NULL REFERENCES adjustment_meta.batches(adjustment_batch_id),
     source_output_record_id text NOT NULL,
-    parent_output_record_id text NOT NULL,
-    cancellation_output_record_id text NOT NULL,
-    replacement_output_record_id text NOT NULL,
+    parent_output_record_id text,
+    cancellation_output_record_id text,
+    replacement_output_record_id text,
     trade_no text,
     fo_system text NOT NULL,
     expected_row_version text NOT NULL,
-    original_snapshot jsonb NOT NULL,
-    cancellation_snapshot jsonb NOT NULL,
-    replacement_snapshot jsonb NOT NULL,
+    original_snapshot jsonb,
+    cancellation_snapshot jsonb,
+    replacement_snapshot jsonb,
     changed_fields jsonb NOT NULL DEFAULT '[]',
     recalculated_fields jsonb NOT NULL DEFAULT '[]',
     impacted_stages jsonb NOT NULL DEFAULT '[]',
@@ -140,7 +140,7 @@ CREATE TABLE IF NOT EXISTS vertica_sim.output_completude_table (
     adjustment_reference text,
     created_at timestamptz NOT NULL DEFAULT now(),
     created_by text NOT NULL DEFAULT 'limon-pipeline',
-    CHECK(record_type IN ('BASE','ADJUSTMENT_CANCEL','ADJUSTMENT_REPLACEMENT')),
+    CHECK(record_type IN ('BASE','ADJUSTMENT_CANCEL','ADJUSTMENT_REPLACEMENT','PROXY')),
     CHECK((record_type='BASE' AND adjustment_reference IS NULL) OR
           (record_type<>'BASE' AND adjustment_reference IS NOT NULL))
 );
@@ -148,13 +148,13 @@ CREATE TABLE IF NOT EXISTS vertica_sim.output_completude_table (
 CREATE TABLE IF NOT EXISTS vertica_sim.output_adjustment_links (
     output_record_id text PRIMARY KEY REFERENCES vertica_sim.output_completude_table(output_record_id),
     source_output_record_id text NOT NULL,
-    parent_output_record_id text NOT NULL,
+    parent_output_record_id text,
     adjustment_reference text NOT NULL,
     record_type text NOT NULL,
     item_position integer NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE(adjustment_reference,source_output_record_id,record_type),
-    CHECK(record_type IN ('ADJUSTMENT_CANCEL','ADJUSTMENT_REPLACEMENT'))
+    CHECK(record_type IN ('ADJUSTMENT_CANCEL','ADJUSTMENT_REPLACEMENT','PROXY'))
 );
 
 CREATE INDEX IF NOT EXISTS output_sim_context_idx ON vertica_sim.output_completude_table(asofdate,asofdateflow,fo_system,trade_no);

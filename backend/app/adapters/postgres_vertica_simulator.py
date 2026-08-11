@@ -124,12 +124,21 @@ class PostgresVerticaSimulatorRepository:
 
     @staticmethod
     def _active(rows):
-        replacements = [
-            row for row in rows if row["record_type"] == "ADJUSTMENT_REPLACEMENT"
-        ]
-        if replacements:
-            return max(replacements, key=lambda row: (row["created_at"], row["output_record_id"]))
-        return next(row for row in rows if row["record_type"] == "BASE")
+        ranked = {
+            "BASE": 0,
+            "ADJUSTMENT_CANCEL": 1,
+            "ADJUSTMENT_REPLACEMENT": 2,
+            "PROXY": 2,
+        }
+        latest = max(
+            rows,
+            key=lambda row: (
+                row["created_at"],
+                row.get("adjustment_reference") or "",
+                ranked[row["record_type"]],
+            ),
+        )
+        return None if latest["record_type"] == "ADJUSTMENT_CANCEL" else latest
 
     def search(self, context, search, fo_system, page, page_size):
         with self.connection() as connection:
@@ -138,15 +147,16 @@ class PostgresVerticaSimulatorRepository:
         matches = []
         for source_id, rows in grouped.items():
             active = self._active(rows)
-            if fo_system and active["fo_system"] != fo_system:
+            display = active or max(rows, key=lambda row: row["created_at"])
+            if fo_system and display["fo_system"] != fo_system:
                 continue
-            searchable = (active["trade_no"], active.get("isin"), source_id)
+            searchable = (display["trade_no"], display.get("isin"), source_id)
             if needle and not any(needle in str(value or "").casefold() for value in searchable):
                 continue
-            matches.append((source_id, rows, active))
-        matches.sort(key=lambda item: (item[2]["trade_no"], item[0]))
+            matches.append((source_id, rows, active, display))
+        matches.sort(key=lambda item: (item[3]["trade_no"], item[0]))
         expanded = []
-        for _, rows, active in matches:
+        for _, rows, active, _ in matches:
             replacement_count = sum(
                 row["record_type"] == "ADJUSTMENT_REPLACEMENT" for row in rows
             )
@@ -158,11 +168,12 @@ class PostgresVerticaSimulatorRepository:
                             "BASE": "ORIGINAL",
                             "ADJUSTMENT_CANCEL": "REVERSAL",
                             "ADJUSTMENT_REPLACEMENT": "ADJUSTED",
+                            "PROXY": "PROXY",
                         }[row["record_type"]],
-                        "isActive": row["output_record_id"] == active["output_record_id"],
+                        "isActive": bool(active) and row["output_record_id"] == active["output_record_id"],
                         "isAdjusted": replacement_count > 0,
                         "adjustmentCount": replacement_count,
-                        "activeRecordType": active["record_type"],
+                        "activeRecordType": active["record_type"] if active else "CANCELLED",
                         "adjustmentBatchId": row.get("adjustment_reference"),
                         "lineageTimestamp": self._iso(row.get("created_at")),
                     }
@@ -180,7 +191,10 @@ class PostgresVerticaSimulatorRepository:
             rows = self._lineage_rows(connection, context, row_id)
         if not rows:
             raise DomainError("Trade not found in the selected LiMon version.")
-        return self._domain(self._active(rows))
+        active = self._active(rows)
+        if not active:
+            raise DomainError("This trade is cancelled and has no active business row.")
+        return self._domain(active)
 
     def get_lineage(self, context, row_id):
         with self.connection() as connection:
@@ -196,8 +210,9 @@ class PostgresVerticaSimulatorRepository:
                         "BASE": "ORIGINAL",
                         "ADJUSTMENT_CANCEL": "REVERSAL",
                         "ADJUSTMENT_REPLACEMENT": "ADJUSTED",
+                        "PROXY": "PROXY",
                     }[row["record_type"]],
-                    "isActive": row["output_record_id"] == active["output_record_id"],
+                    "isActive": bool(active) and row["output_record_id"] == active["output_record_id"],
                     "adjustmentBatchId": row.get("adjustment_reference"),
                     "timestamp": self._iso(row.get("created_at")),
                     "row": self._domain(row),
@@ -208,7 +223,7 @@ class PostgresVerticaSimulatorRepository:
             "adjustmentCount": sum(
                 row["record_type"] == "ADJUSTMENT_REPLACEMENT" for row in rows
             ),
-            "activeRow": self._domain(active),
+            "activeRow": self._domain(active) if active else None,
             "rows": result,
         }
 
@@ -247,7 +262,7 @@ class PostgresVerticaSimulatorRepository:
                 output_ids = []
                 for position, row in enumerate(rows):
                     source_id = row["rowId"]
-                    parent_id = row["_outputRecordId"]
+                    parent_id = row.get("_outputRecordId")
                     record_type = row["recordType"]
                     output_id = self._output_id(batch_reference, source_id, record_type)
                     output_ids.append(output_id)
@@ -272,6 +287,6 @@ class PostgresVerticaSimulatorRepository:
                         f"""INSERT INTO {self.schema}.output_adjustment_links(
                             output_record_id,source_output_record_id,parent_output_record_id,adjustment_reference,record_type,item_position)
                             VALUES(%s,%s,%s,%s,%s,%s)""",
-                        (output_id,source_id,parent_id,batch_reference,record_type,position // 2),
+                        (output_id,source_id,parent_id,batch_reference,record_type,position),
                     )
             return output_ids

@@ -63,7 +63,11 @@ class HybridAdjustmentRepository:
         )
         if not external_rows:
             return None
-        if len(external_rows) != len(recovery["items"]) * 2:
+        expected_count = sum(
+            len(item.get("outputRows") or self._legacy_output_rows(item))
+            for item in recovery["items"]
+        )
+        if len(external_rows) != expected_count:
             raise RuntimeError(
                 "Output contains a partial adjustment batch; reconciliation is required."
             )
@@ -111,7 +115,10 @@ class HybridAdjustmentRepository:
                 "No incomplete adjustment request was found for this batch reference."
             )
         external_rows = self.output.get_rows_by_batch_reference(batch_reference)
-        expected_count = len(recovery["items"]) * 2
+        expected_count = sum(
+            len(item.get("outputRows") or self._legacy_output_rows(item))
+            for item in recovery["items"]
+        )
         if len(external_rows) != expected_count:
             raise InfrastructureError(
                 "Automatic reconciliation stopped: "
@@ -174,7 +181,9 @@ class HybridAdjustmentRepository:
             self._inject_failure("AFTER_REQUEST_RESERVED")
             rows = []
             for built in built_items:
-                rows.extend([built["cancellation"], built["replacement"]])
+                rows.extend(
+                    built.get("outputRows") or self._legacy_output_rows(built)
+                )
             external_ids = self.output.insert_adjustment_rows(
                 first["context"], reference, rows, user
             )
@@ -201,6 +210,14 @@ class HybridAdjustmentRepository:
                 reconciliation=bool(external_ids),
             )
             raise
+
+    @staticmethod
+    def _legacy_output_rows(item):
+        return [
+            row
+            for row in (item.get("cancellation"), item.get("replacement"))
+            if row is not None
+        ]
 
     @staticmethod
     def _inject_failure(point):

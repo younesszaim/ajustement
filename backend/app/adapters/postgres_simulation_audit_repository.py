@@ -70,7 +70,12 @@ class PostgresSimulationAuditRepository:
         with self.connection() as connection:
             with connection.transaction():
                 project_id = self._project_id(connection, project_key)
-                reference = f"{'REV' if action_type == 'REVERT' else 'ADJ'}-{datetime.now(timezone.utc):%Y%m%d-%H%M%S%f}"
+                prefix = {
+                    "REVERT": "REV",
+                    "TRADE_CANCELLATION": "CAN",
+                    "PROXY": "PRX",
+                }.get(action_type, "ADJ")
+                reference = f"{prefix}-{datetime.now(timezone.utc):%Y%m%d-%H%M%S%f}"
                 row = connection.execute(
                     f"""INSERT INTO {self.schema}.requests(
                         project_id,idempotency_key,batch_reference,action_type,base_asofdate,base_asofdateflow,
@@ -212,7 +217,11 @@ class PostgresSimulationAuditRepository:
                     return self._result(existing)
 
                 output_ids = list(request["output_record_ids"] or [])
-                if len(output_ids) != len(items) * 2:
+                expected_count = sum(
+                    len(item.get("outputRows") or self._legacy_output_rows(item))
+                    for item in items
+                )
+                if len(output_ids) != expected_count:
                     raise DomainError("Output record count does not match the reserved batch.")
                 batch_row = connection.execute(
                     f"""INSERT INTO {self.schema}.batches(
@@ -225,8 +234,19 @@ class PostgresSimulationAuditRepository:
                         batch.get("revertedAdjustmentBatchId"),request["idempotency_key"],len(items),len(output_ids),
                     ),
                 ).fetchone()
-                for index, built in enumerate(items):
-                    original = built["original"]
+                output_offset = 0
+                for built in items:
+                    original = built.get("original")
+                    cancellation = built.get("cancellation")
+                    replacement = built.get("replacement")
+                    item_rows = built.get("outputRows") or self._legacy_output_rows(built)
+                    item_ids = output_ids[output_offset : output_offset + len(item_rows)]
+                    output_offset += len(item_rows)
+                    id_by_type = {
+                        row["recordType"]: output_id
+                        for row, output_id in zip(item_rows, item_ids)
+                    }
+                    source = original or replacement
                     snapshot = connection.execute(
                         f"""INSERT INTO {self.schema}.item_snapshots(
                             adjustment_batch_id,source_output_record_id,parent_output_record_id,
@@ -235,10 +255,15 @@ class PostgresSimulationAuditRepository:
                             changed_fields,recalculated_fields,impacted_stages)
                             VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING snapshot_id""",
                         (
-                            batch_row["adjustment_batch_id"],original["rowId"],original["_outputRecordId"],
-                            output_ids[index * 2],output_ids[index * 2 + 1],original.get("tradeNo"),
-                            original.get("foSystem"),built.get("rowVersion",row_version(original)),
-                            Jsonb(original),Jsonb(built["cancellation"]),Jsonb(built["replacement"]),
+                            batch_row["adjustment_batch_id"],source["rowId"],
+                            original.get("_outputRecordId") if original else None,
+                            id_by_type.get("ADJUSTMENT_CANCEL"),
+                            id_by_type.get("ADJUSTMENT_REPLACEMENT") or id_by_type.get("PROXY"),
+                            source.get("tradeNo"),source.get("foSystem"),
+                            built.get("rowVersion",row_version(source)),
+                            Jsonb(original) if original else None,
+                            Jsonb(cancellation) if cancellation else None,
+                            Jsonb(replacement) if replacement else None,
                             Jsonb(built["changedFields"]),Jsonb(built["recalculatedFields"]),
                             Jsonb(built.get("impactedStages", [])),
                         ),
@@ -253,10 +278,13 @@ class PostgresSimulationAuditRepository:
                                 Jsonb(change.get("newValue")),type(change.get("newValue")).__name__,
                             ),
                         )
-                event_type = (
-                    "ADJUSTMENT_REVERTED" if batch["actionType"] == "REVERT"
-                    else "BATCH_COMMITTED" if len(items) > 1
-                    else "ADJUSTMENT_COMMITTED"
+                event_type = {
+                    "REVERT": "ADJUSTMENT_REVERTED",
+                    "TRADE_CANCELLATION": "TRADE_CANCELLED",
+                    "PROXY": "PROXY_CREATED",
+                }.get(
+                    batch["actionType"],
+                    "BATCH_COMMITTED" if len(items) > 1 else "ADJUSTMENT_COMMITTED",
                 )
                 connection.execute(
                     f"""INSERT INTO {self.schema}.action_events(
@@ -273,6 +301,14 @@ class PostgresSimulationAuditRepository:
                     (request_id,),
                 )
                 return self._result(batch_row)
+
+    @staticmethod
+    def _legacy_output_rows(item):
+        return [
+            row
+            for row in (item.get("cancellation"), item.get("replacement"))
+            if row is not None
+        ]
 
     @staticmethod
     def _result(row):
@@ -363,8 +399,9 @@ class PostgresSimulationAuditRepository:
             ):
                 continue
             for item in request["request_payload"]:
-                original = item["original"]
-                if row_id and original["rowId"] != row_id:
+                original = item.get("original")
+                source = original or item.get("replacement")
+                if not source or (row_id and source["rowId"] != row_id):
                     continue
                 result.append(
                     {

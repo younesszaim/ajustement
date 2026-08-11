@@ -26,6 +26,7 @@ import type {
   Context,
   HistoryItem,
   Preview,
+  ProxyFields,
   Trade,
 } from "./types";
 const money = new Intl.NumberFormat("en-GB", {
@@ -106,7 +107,23 @@ export function App() {
     [batchPreview, setBatchPreview] = useState<BatchPreview | null>(null),
     [showBatchPreview, setShowBatchPreview] = useState(false),
     [revertTarget, setRevertTarget] = useState<HistoryItem | null>(null),
-    [revertReason, setRevertReason] = useState("");
+    [revertReason, setRevertReason] = useState(""),
+    [showProxy, setShowProxy] = useState(false),
+    [proxyDraftId, setProxyDraftId] = useState(() => crypto.randomUUID()),
+    [proxyFields, setProxyFields] = useState<ProxyFields>({
+      foSystem: "",
+      targetInstrumentType: "SECURITY",
+      isin: "",
+      issue: "",
+      valueDate: "",
+      maturityDate: "",
+      currency: "EUR",
+      amount: 0,
+      portfolio: "",
+      counterparty: "",
+    }),
+    [proxyPreview, setProxyPreview] = useState<Preview | null>(null),
+    [proxyReason, setProxyReason] = useState("");
   const dates = useQuery({ queryKey: ["dates"], queryFn: api.dates });
   useEffect(() => {
     if (!date && dates.data?.length) setDate(dates.data[0]);
@@ -159,7 +176,7 @@ export function App() {
   });
   useEffect(() => {
     if (
-      batch.some((x) => x.preview.original.rowId === selected) &&
+      batch.some((x) => x.preview.original?.rowId === selected) &&
       tab === "adjustment"
     )
       return;
@@ -201,14 +218,22 @@ export function App() {
   }, [previewMut.isPending]);
   const commit = useMutation({
     mutationFn: () =>
-      api.commit(
-        ctx,
-        selected,
-        changes,
-        reason,
-        preview!.rowVersion,
-        (singleCommitKey.current ??= crypto.randomUUID()),
-      ),
+      preview?.operationType === "TRADE_CANCELLATION"
+        ? api.commitCancellation(
+            ctx,
+            selected,
+            reason,
+            preview.rowVersion,
+            (singleCommitKey.current ??= crypto.randomUUID()),
+          )
+        : api.commit(
+            ctx,
+            selected,
+            changes,
+            reason,
+            preview!.rowVersion,
+            (singleCommitKey.current ??= crypto.randomUUID()),
+          ),
     onSuccess: (r) => {
       singleCommitKey.current = null;
       setConfirm(false);
@@ -226,12 +251,56 @@ export function App() {
       setNotice((e as Error).message);
     },
   });
+  const cancelPreviewMut = useMutation({
+    mutationFn: () => api.previewCancellation(ctx, selected),
+    onSuccess: (result) => {
+      setPreview(result);
+      setReason("");
+      setTab("preview");
+    },
+    onError: (e) => {
+      setNoticeError(true);
+      setNotice((e as Error).message);
+    },
+  });
+  const proxyPreviewMut = useMutation({
+    mutationFn: () => api.previewProxy(ctx, proxyDraftId, proxyFields),
+    onSuccess: setProxyPreview,
+    onError: (e) => {
+      setNoticeError(true);
+      setNotice((e as Error).message);
+    },
+  });
+  const proxyCommitMut = useMutation({
+    mutationFn: () =>
+      api.commitProxy(
+        ctx,
+        proxyDraftId,
+        proxyFields,
+        proxyReason,
+        (singleCommitKey.current ??= crypto.randomUUID()),
+      ),
+    onSuccess: (result) => {
+      singleCommitKey.current = null;
+      setNoticeError(false);
+      setNotice(`Proxy ${proxyPreview?.replacement?.tradeNo} committed as ${result.adjustmentBatchId}.`);
+      setShowProxy(false);
+      setProxyPreview(null);
+      setProxyReason("");
+      setProxyDraftId(crypto.randomUUID());
+      qc.invalidateQueries();
+    },
+    onError: (e) => {
+      setNoticeError(true);
+      setNotice((e as Error).message);
+    },
+  });
   const batchCommit = useMutation({
     mutationFn: () =>
       api.commitBatch(
         ctx,
         batch.map((x) => ({
-          rowId: x.preview.original.rowId,
+          rowId: x.preview.original!.rowId,
           changes: x.changes,
           expectedVersion: x.preview.rowVersion,
         })),
@@ -260,7 +329,7 @@ export function App() {
       api.previewBatch(
         ctx,
         batch.map((x) => ({
-          rowId: x.preview.original.rowId,
+          rowId: x.preview.original!.rowId,
           changes: x.changes,
         })),
       ),
@@ -281,7 +350,7 @@ export function App() {
           asofdate: revertTarget!.baseAsOfDate,
           asofdateflow: revertTarget!.baseAsOfDateFlow,
         },
-        revertTarget!.original.rowId,
+        (revertTarget!.original ?? revertTarget!.replacement)!.rowId,
         revertReason,
         (revertCommitKey.current ??= crypto.randomUUID()),
       ),
@@ -393,18 +462,19 @@ export function App() {
     setPreview(null);
   };
   const addToBatch = () => {
-    if (!preview) return;
+    if (!preview?.original || preview.operationType === "TRADE_CANCELLATION") return;
+    const original = preview.original;
     batchCommitKey.current = null;
     setBatch((items) => [
       ...items.filter(
-        (x) => x.preview.original.rowId !== preview.original.rowId,
+        (x) => x.preview.original!.rowId !== original.rowId,
       ),
       { preview, changes: { ...changes } },
     ]);
     setBatchPreview(null);
     setShowBatchPreview(false);
     setNoticeError(false);
-    setNotice(`${preview.original.tradeNo} added to the adjustment batch.`);
+    setNotice(`${original.tradeNo} added to the adjustment batch.`);
     setSelected("");
     setSubmitted(null);
     setTradeFilter("");
@@ -412,7 +482,7 @@ export function App() {
     setPreview(null);
   };
   const editBatchItem = (rowId: string) => {
-    const item = batch.find((x) => x.preview.original.rowId === rowId);
+    const item = batch.find((x) => x.preview.original!.rowId === rowId);
     if (!item) return;
     setBatchPreview(null);
     setShowBatchPreview(false);
@@ -462,6 +532,22 @@ export function App() {
                 : "Select a LiMon snapshot, find one trade, and create an audited adjustment."}
             </p>
           </div>
+          {!showGlobal && (
+            <button
+              className="primary"
+              disabled={!flow}
+              onClick={() => {
+                setProxyFields((current) => ({
+                  ...current,
+                  valueDate: current.valueDate || date,
+                  maturityDate: current.maturityDate || date,
+                }));
+                setShowProxy(true);
+              }}
+            >
+              Add proxy trade <ArrowRight />
+            </button>
+          )}
         </div>
         {!showGlobal && (
           <section className="context">
@@ -571,17 +657,17 @@ export function App() {
             </div>
             <div className="batch-items">
               {batch.map((x) => (
-                <div key={x.preview.original.rowId}>
+                <div key={x.preview.original!.rowId}>
                   <div>
-                    <strong>{x.preview.original.tradeNo}</strong>
+                    <strong>{x.preview.original!.tradeNo}</strong>
                     <span>
-                      {x.preview.original.foSystem} ·{" "}
+                      {x.preview.original!.foSystem} ·{" "}
                       {x.preview.changedFields.map((c) => c.label).join(", ")}
                     </span>
                   </div>
                   <div>
                     <button
-                      onClick={() => editBatchItem(x.preview.original.rowId)}
+                      onClick={() => editBatchItem(x.preview.original!.rowId)}
                     >
                       Edit
                     </button>
@@ -590,8 +676,8 @@ export function App() {
                         setBatch((items) =>
                           items.filter(
                             (i) =>
-                              i.preview.original.rowId !==
-                              x.preview.original.rowId,
+                              i.preview.original!.rowId !==
+                              x.preview.original!.rowId,
                           ),
                         );
                         batchCommitKey.current = null;
@@ -935,12 +1021,22 @@ export function App() {
                       Close selected trade
                     </button>
                     {tab === "current" && (
-                      <button
-                        className="primary"
-                        onClick={() => setTab("adjustment")}
-                      >
-                        Create adjustment <ArrowRight />
-                      </button>
+                      <>
+                        <button
+                          className="cancel-trade-button"
+                          disabled={cancelPreviewMut.isPending}
+                          onClick={() => cancelPreviewMut.mutate()}
+                        >
+                          {cancelPreviewMut.isPending && <Loader2 className="spin" />}
+                          Cancel trade effect
+                        </button>
+                        <button
+                          className="primary"
+                          onClick={() => setTab("adjustment")}
+                        >
+                          Modify trade <ArrowRight />
+                        </button>
+                      </>
                     )}
                   </div>
                 ))}
@@ -1108,9 +1204,13 @@ export function App() {
                   }}
                   apply={() => setConfirm(true)}
                   addToBatch={addToBatch}
-                  inBatch={batch.some(
-                    (x) => x.preview.original.rowId === preview.original.rowId,
-                  )}
+                  inBatch={
+                    !!preview.original &&
+                    preview.operationType !== "TRADE_CANCELLATION" &&
+                    batch.some(
+                      (x) => x.preview.original!.rowId === preview.original!.rowId,
+                    )
+                  }
                   pending={commit.isPending}
                 />
               ) : (
@@ -1189,8 +1289,10 @@ export function App() {
             <AlertCircle />
             <h2>Apply adjustment?</h2>
             <p>
-              This creates one reversal and one adjusted row for{" "}
-              <strong>{preview.original.tradeNo}</strong>.
+              {preview.operationType === "TRADE_CANCELLATION"
+                ? "This creates one reversal row and cancels the trade effect for "
+                : "This creates one reversal and one adjusted row for "}
+              <strong>{preview.original?.tradeNo}</strong>.
             </p>
             <div className="confirm-list">
               <span>Changed fields</span>
@@ -1217,6 +1319,31 @@ export function App() {
           </div>
         </div>
       )}
+      {showProxy && (
+        <ProxyDialog
+          context={ctx}
+          fields={proxyFields}
+          setFields={(next) => {
+            singleCommitKey.current = null;
+            setProxyFields(next);
+            setProxyPreview(null);
+          }}
+          preview={proxyPreview}
+          reason={proxyReason}
+          setReason={(value) => {
+            singleCommitKey.current = null;
+            setProxyReason(value);
+          }}
+          previewPending={proxyPreviewMut.isPending}
+          commitPending={proxyCommitMut.isPending}
+          runPreview={() => proxyPreviewMut.mutate()}
+          commit={() => proxyCommitMut.mutate()}
+          close={() => {
+            setShowProxy(false);
+            setProxyPreview(null);
+          }}
+        />
+      )}
       {revertTarget && (
         <div className="modal-back">
           <div className="modal revert-modal">
@@ -1229,7 +1356,9 @@ export function App() {
             </p>
             <div className="confirm-list">
               <span>Trade</span>
-              <strong>{revertTarget.original.tradeNo}</strong>
+              <strong>
+                {(revertTarget.original ?? revertTarget.replacement)?.tradeNo}
+              </strong>
               <span>As of date</span>
               <strong>{revertTarget.baseAsOfDate}</strong>
               <span>Version</span>
@@ -1276,6 +1405,148 @@ export function App() {
         </div>
       )}
     </>
+  );
+}
+function ProxyDialog({
+  context,
+  fields,
+  setFields,
+  preview,
+  reason,
+  setReason,
+  previewPending,
+  commitPending,
+  runPreview,
+  commit,
+  close,
+}: {
+  context: Context;
+  fields: ProxyFields;
+  setFields: (fields: ProxyFields) => void;
+  preview: Preview | null;
+  reason: string;
+  setReason: (value: string) => void;
+  previewPending: boolean;
+  commitPending: boolean;
+  runPreview: () => void;
+  commit: () => void;
+  close: () => void;
+}) {
+  const required =
+    fields.foSystem &&
+    fields.portfolio &&
+    fields.counterparty &&
+    fields.valueDate &&
+    fields.maturityDate &&
+    fields.amount !== 0;
+  const update = (field: keyof ProxyFields, value: string) =>
+    setFields({
+      ...fields,
+      [field]: field === "amount" ? Number(value) : value,
+    });
+  return (
+    <div className="modal-back proxy-back">
+      <section className="proxy-dialog">
+        <header>
+          <div>
+            <span className="eyebrow">NEW ADJUSTMENT TYPE</span>
+            <h2>Add proxy trade</h2>
+            <p>
+              {context.asofdate} ·{" "}
+              {new Date(context.asofdateflow).toLocaleString("en-GB")}
+            </p>
+          </div>
+          <button onClick={close}>Close ×</button>
+        </header>
+        <div className="proxy-fields">
+          {(
+            [
+              ["foSystem", "FO system", "text"],
+              ["portfolio", "Portfolio", "text"],
+              ["counterparty", "Counterparty", "text"],
+              ["isin", "ISIN", "text"],
+              ["issue", "Issue", "text"],
+              ["valueDate", "Value date", "date"],
+              ["maturityDate", "Maturity date", "date"],
+              ["amount", "Amount", "number"],
+            ] as const
+          ).map(([field, label, type]) => (
+            <label key={field}>
+              <span>{label}</span>
+              <input
+                type={type}
+                value={fields[field]}
+                onChange={(event) => update(field, event.target.value)}
+              />
+            </label>
+          ))}
+          <label>
+            <span>Instrument type</span>
+            <select
+              value={fields.targetInstrumentType}
+              onChange={(event) =>
+                update("targetInstrumentType", event.target.value)
+              }
+            >
+              {['SECURITY', 'LOAN', 'DEPOSIT', 'DERIVATIVE'].map((value) => (
+                <option key={value}>{value}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Currency</span>
+            <select
+              value={fields.currency}
+              onChange={(event) => update("currency", event.target.value)}
+            >
+              {['EUR', 'USD', 'GBP', 'JPY'].map((value) => (
+                <option key={value}>{value}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {!preview ? (
+          <div className="proxy-actions">
+            <span>The trade number and output record ID are generated automatically.</span>
+            <button
+              className="primary"
+              disabled={!required || previewPending}
+              onClick={runPreview}
+            >
+              {previewPending && <Loader2 className="spin" />} Preview proxy
+            </button>
+          </div>
+        ) : (
+          <div className="proxy-preview">
+            <div className="generated-id">
+              <span>Generated trade number</span>
+              <strong>{preview.replacement?.tradeNo}</strong>
+            </div>
+            {preview.replacement && (
+              <RowCard title="Proxy output row" row={preview.replacement} tone="adjusted" />
+            )}
+            <label>
+              <span>Reason *</span>
+              <textarea
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+                placeholder="Explain why this proxy is required…"
+              />
+            </label>
+            <div className="proxy-actions">
+              <button onClick={() => setFields({ ...fields })}>Modify</button>
+              <button
+                className="primary"
+                disabled={reason.trim().length < 5 || commitPending}
+                onClick={commit}
+              >
+                {commitPending && <Loader2 className="spin" />} Commit proxy
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+    </div>
   );
 }
 function LineageView({ lineage }: { lineage: import("./types").TradeLineage }) {
@@ -1404,6 +1675,9 @@ function RowCard({
     </article>
   );
 }
+const historyTrade = (item: HistoryItem) =>
+  item.original ?? item.replacement ?? item.cancellation!;
+
 function RegisterEntries({
   items,
   onRevert,
@@ -1420,14 +1694,18 @@ function RegisterEntries({
   const reverts = new Map(
     items
       .filter((x) => x.actionType === "REVERT" && x.revertedAdjustmentBatchId)
-      .map((x) => [`${x.original.rowId}:${x.revertedAdjustmentBatchId}`, x]),
+      .map((x) => [
+        `${historyTrade(x).rowId}:${x.revertedAdjustmentBatchId}`,
+        x,
+      ]),
   );
   const commits = items.filter((x) => x.actionType !== "REVERT");
   return (
     <>
       {commits.map((commit) => {
+        const trade = historyTrade(commit);
         const revert = reverts.get(
-          `${commit.original.rowId}:${commit.adjustmentBatchId}`,
+          `${trade.rowId}:${commit.adjustmentBatchId}`,
         );
         const display = revert ? { ...commit, status: "REVERTED" } : commit;
         return (
@@ -1435,7 +1713,7 @@ function RegisterEntries({
             className={
               "register-pair " + (revert ? "is-reverted" : "is-committed")
             }
-            key={`${commit.adjustmentBatchId}-${commit.original.rowId}`}
+            key={`${commit.adjustmentBatchId}-${trade.rowId}`}
           >
             <HistoryEntry
               item={display}
@@ -1506,6 +1784,7 @@ function HistoryEntry({
   reconciling?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const trade = historyTrade(h);
   return (
     <article
       className={
@@ -1519,12 +1798,22 @@ function HistoryEntry({
             <div>
               <strong>
                 {showTrade
-                  ? `${h.original.tradeNo} · ${h.adjustmentBatchId}`
+                  ? `${trade.tradeNo} · ${h.adjustmentBatchId}`
                   : h.adjustmentBatchId}
               </strong>
               <span className="badge">
-                {h.actionType === "REVERT" ? "REVERT" : h.status}
+                {h.actionType === "TRADE_CANCELLATION"
+                  ? "TRADE CANCELLATION"
+                  : h.actionType === "PROXY"
+                    ? "PROXY"
+                    : h.actionType === "REVERT"
+                      ? "REVERT"
+                      : h.status}
               </span>
+              {h.actionType !== "ADJUSTMENT" &&
+                h.actionType !== "REVERT" && (
+                  <span className="badge">{h.status}</span>
+                )}
             </div>
             <time>
               {new Date(h.timestamp).toLocaleString("en-GB", {
@@ -1604,13 +1893,19 @@ function HistoryEntry({
           {open && (
             <>
               <div className="history-row-flow">
-                <RowCard title="Original" row={h.original} tone="original" />
-                <RowCard
-                  title="Reversal"
-                  row={h.cancellation}
-                  tone="reversal"
-                />
-                <RowCard title="Adjusted" row={h.replacement} tone="adjusted" />
+                {h.original && (
+                  <RowCard title="Original" row={h.original} tone="original" />
+                )}
+                {h.cancellation && (
+                  <RowCard title="Reversal" row={h.cancellation} tone="reversal" />
+                )}
+                {h.replacement && (
+                  <RowCard
+                    title={h.actionType === "PROXY" ? "Proxy" : "Adjusted"}
+                    row={h.replacement}
+                    tone="adjusted"
+                  />
+                )}
               </div>
               <div className="recalculated">
                 <span>Recalculated fields</span>
@@ -1681,32 +1976,32 @@ function BatchPreviewDialog({
         </div>
         <div className="batch-preview-items">
           {result.items.map((item) => (
-            <article key={item.original.rowId}>
+            <article key={item.original!.rowId}>
               <div className="batch-preview-title">
                 <div>
-                  <strong>{item.original.tradeNo}</strong>
+                  <strong>{item.original!.tradeNo}</strong>
                   <span>
-                    {item.original.foSystem} ·{" "}
+                    {item.original!.foSystem} ·{" "}
                     {item.changedFields.map((x) => x.label).join(", ")}
                   </span>
                 </div>
                 <button
                   className="outline"
-                  onClick={() => edit(item.original.rowId)}
+                  onClick={() => edit(item.original!.rowId)}
                 >
                   Edit adjustment
                 </button>
               </div>
               <div className="batch-mini-flow">
-                <RowCard title="Original" row={item.original} tone="original" />
+                <RowCard title="Original" row={item.original!} tone="original" />
                 <RowCard
                   title="Reversal"
-                  row={item.cancellation}
+                  row={item.cancellation!}
                   tone="reversal"
                 />
                 <RowCard
                   title="Adjusted"
-                  row={item.replacement}
+                  row={item.replacement!}
                   tone="adjusted"
                 />
               </div>
@@ -1756,11 +2051,21 @@ function PreviewView({
         </span>
       </div>
       <div className="row-flow">
-        <RowCard title="Original" row={preview.original} tone="original" />
-        <ArrowRight />
-        <RowCard title="Reversal" row={preview.cancellation} tone="reversal" />
-        <ArrowRight />
-        <RowCard title="Adjusted" row={preview.replacement} tone="adjusted" />
+        {preview.original && (
+          <RowCard title="Original" row={preview.original} tone="original" />
+        )}
+        {preview.cancellation && (
+          <>
+            <ArrowRight />
+            <RowCard title="Reversal" row={preview.cancellation} tone="reversal" />
+          </>
+        )}
+        {preview.replacement && (
+          <>
+            <ArrowRight />
+            <RowCard title="Adjusted" row={preview.replacement} tone="adjusted" />
+          </>
+        )}
       </div>
       <section className="changes">
         <h3>Calculation result</h3>
@@ -1791,15 +2096,19 @@ function PreviewView({
           Original row remains immutable
         </span>
         <div className="preview-actions">
-          <button className="outline" onClick={addToBatch}>
-            {inBatch ? "Update batch" : "Add to batch"}
-          </button>
+          {preview.operationType !== "TRADE_CANCELLATION" && (
+            <button className="outline" onClick={addToBatch}>
+              {inBatch ? "Update batch" : "Add to batch"}
+            </button>
+          )}
           <button
             className="primary"
             onClick={apply}
             disabled={reason.trim().length < 5 || pending}
           >
-            Apply this adjustment
+            {preview.operationType === "TRADE_CANCELLATION"
+              ? "Cancel trade effect"
+              : "Apply this adjustment"}
           </button>
         </div>
       </div>

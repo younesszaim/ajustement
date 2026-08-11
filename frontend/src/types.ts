@@ -1,7 +1,8 @@
 export type RecordType =
   | "BASE"
   | "ADJUSTMENT_CANCEL"
-  | "ADJUSTMENT_REPLACEMENT";
+  | "ADJUSTMENT_REPLACEMENT"
+  | "PROXY";
 export interface Context {
   asofdate: string;
   asofdateflow: string;
@@ -55,9 +56,11 @@ export interface Difference {
   delta?: number;
 }
 export interface Preview {
-  original: Trade;
-  cancellation: Trade;
-  replacement: Trade;
+  operationType?: "ADJUSTMENT" | "TRADE_CANCELLATION" | "PROXY";
+  original: Trade | null;
+  cancellation: Trade | null;
+  replacement: Trade | null;
+  outputRows?: Trade[];
   changedFields: FieldChange[];
   impactedStages: string[];
   recalculatedFields: string[];
@@ -75,9 +78,9 @@ export interface BatchPreview {
 export interface TradeLineage {
   isAdjusted: boolean;
   adjustmentCount: number;
-  activeRow: Trade;
+  activeRow: Trade | null;
   rows: {
-    role: "ORIGINAL" | "REVERSAL" | "ADJUSTED";
+    role: "ORIGINAL" | "REVERSAL" | "ADJUSTED" | "PROXY";
     isActive: boolean;
     adjustmentBatchId: string | null;
     timestamp: string | null;
@@ -92,11 +95,24 @@ export interface HistoryItem {
   baseAsOfDate: string;
   baseAsOfDateFlow: string;
   status: string;
-  actionType?: "ADJUSTMENT" | "REVERT";
+  actionType?: "ADJUSTMENT" | "TRADE_CANCELLATION" | "PROXY" | "REVERT";
   revertedAdjustmentBatchId?: string | null;
   changedFields: FieldChange[];
   recalculatedFields: string[];
-  original: Trade;
-  cancellation: Trade;
-  replacement: Trade;
+  original: Trade | null;
+  cancellation: Trade | null;
+  replacement: Trade | null;
+}
+
+export interface ProxyFields {
+  foSystem: string;
+  targetInstrumentType: string;
+  isin: string;
+  issue: string;
+  valueDate: string;
+  maturityDate: string;
+  currency: string;
+  amount: number;
+  portfolio: string;
+  counterparty: string;
 }

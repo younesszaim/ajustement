@@ -8,6 +8,10 @@ from .models import (
     BatchCommitRequest,
     BatchPreviewRequest,
     RevertAdjustmentRequest,
+    CancelTradeRequest,
+    CancelTradeCommitRequest,
+    ProxyPreviewRequest,
+    ProxyCommitRequest,
     LimonContext,
 )
 from .storage import build_repository
@@ -155,6 +159,42 @@ def preview(req: AdjustmentRequest):
             req.rowId,
         )
         return result
+    except (DomainError, InfrastructureError) as exc:
+        fail(exc)
+
+
+@app.post("/api/adjustments/cancel/preview")
+def cancel_preview(req: CancelTradeRequest):
+    try:
+        return service.preview_cancellation(req.context, req.rowId)
+    except (DomainError, InfrastructureError) as exc:
+        fail(exc)
+
+
+@app.post("/api/adjustments/cancel/commit")
+def cancel_commit(req: CancelTradeCommitRequest):
+    try:
+        return service.commit_cancellation(
+            req, os.getenv("LOCAL_USER", "developer@example")
+        )
+    except (DomainError, InfrastructureError) as exc:
+        fail(exc)
+
+
+@app.post("/api/adjustments/proxy/preview")
+def proxy_preview(req: ProxyPreviewRequest):
+    try:
+        return service.preview_proxy(req.context, req.draftId, req.fields)
+    except (DomainError, InfrastructureError) as exc:
+        fail(exc)
+
+
+@app.post("/api/adjustments/proxy/commit")
+def proxy_commit(req: ProxyCommitRequest):
+    try:
+        return service.commit_proxy(
+            req, os.getenv("LOCAL_USER", "developer@example")
+        )
     except (DomainError, InfrastructureError) as exc:
         fail(exc)
 

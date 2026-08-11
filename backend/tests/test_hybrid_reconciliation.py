@@ -36,7 +36,9 @@ class AuditStub:
                     "context": LimonContext(
                         asofdate=date(2026, 8, 7),
                         asofdateflow=datetime(2026, 8, 7, 10, 0),
-                    )
+                    ),
+                    "cancellation": {"recordType": "ADJUSTMENT_CANCEL"},
+                    "replacement": {"recordType": "ADJUSTMENT_REPLACEMENT"},
                 }
             ],
         }

@@ -3,6 +3,7 @@ import type {
   Context,
   HistoryItem,
   Preview,
+  ProxyFields,
   Trade,
   TradeLineage,
 } from "./types";
@@ -56,6 +57,53 @@ export const api = {
       context: c,
       rowId: id,
       changes,
+    }),
+  previewCancellation: (c: Context, id: string) =>
+    post<Preview>("/api/adjustments/cancel/preview", {
+      context: c,
+      rowId: id,
+    }),
+  commitCancellation: (
+    c: Context,
+    id: string,
+    reason: string,
+    rowVersion: string,
+    key: string,
+  ) =>
+    post<{
+      adjustmentBatchId: string;
+      status: string;
+      insertedRecords: number;
+    }>("/api/adjustments/cancel/commit", {
+      context: c,
+      rowId: id,
+      reason,
+      expectedVersion: rowVersion,
+      idempotencyKey: key,
+    }),
+  previewProxy: (c: Context, draftId: string, fields: ProxyFields) =>
+    post<Preview>("/api/adjustments/proxy/preview", {
+      context: c,
+      draftId,
+      fields,
+    }),
+  commitProxy: (
+    c: Context,
+    draftId: string,
+    fields: ProxyFields,
+    reason: string,
+    key: string,
+  ) =>
+    post<{
+      adjustmentBatchId: string;
+      status: string;
+      insertedRecords: number;
+    }>("/api/adjustments/proxy/commit", {
+      context: c,
+      draftId,
+      fields,
+      reason,
+      idempotencyKey: key,
     }),
   commit: (
     c: Context,

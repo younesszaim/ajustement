@@ -94,6 +94,108 @@ main {
   margin: auto;
   padding: 30px 24px 60px;
 }
+
+.cancel-trade-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #b42318;
+  border-radius: 6px;
+  background: #fff;
+  color: #b42318;
+  padding: 8px 12px;
+  font-weight: 700;
+}
+
+.proxy-back {
+  z-index: 80;
+  align-items: flex-start;
+  overflow-y: auto;
+  padding: 36px 20px;
+}
+
+.proxy-dialog {
+  width: min(900px, 100%);
+  margin: auto;
+  border-radius: 10px;
+  background: #fff;
+  padding: 24px;
+}
+
+.proxy-dialog > header,
+.proxy-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.proxy-dialog h2 {
+  margin: 4px 0;
+}
+
+.proxy-dialog header p,
+.proxy-actions span {
+  color: #71717a;
+}
+
+.proxy-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 24px 0;
+}
+
+.proxy-fields label,
+.proxy-preview > label {
+  display: grid;
+  gap: 6px;
+}
+
+.proxy-fields label > span,
+.proxy-preview label > span,
+.generated-id span {
+  font-size: 11px;
+  font-weight: 700;
+  color: #52525b;
+}
+
+.proxy-fields input,
+.proxy-fields select,
+.proxy-preview textarea {
+  width: 100%;
+  border: 1px solid #d4d4d8;
+  border-radius: 6px;
+  background: #fff;
+  padding: 9px 10px;
+}
+
+.proxy-preview {
+  display: grid;
+  gap: 18px;
+  border-top: 1px solid #e4e4e7;
+  padding-top: 20px;
+}
+
+.generated-id {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-left: 3px solid #007a4d;
+  background: #f4faf7;
+  padding: 12px;
+}
+
+@media (max-width: 680px) {
+  .proxy-fields {
+    grid-template-columns: 1fr;
+  }
+  .proxy-dialog > header,
+  .proxy-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
 .page-title {
   display: flex;
   justify-content: space-between;

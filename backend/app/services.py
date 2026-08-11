@@ -5,6 +5,7 @@ from decimal import Decimal
 from hashlib import sha256
 import json
 from typing import Any
+from uuid import UUID
 from .config import (
     ADDITIVE_MEASURES,
     EDITABLE_FIELDS,
@@ -191,6 +192,122 @@ class AdjustmentService:
     def preview(self, context, row_id, changes):
         return self._build(context, row_id, changes)
 
+    @staticmethod
+    def _cancel_row(current):
+        cancellation = deepcopy(current)
+        for field in ADDITIVE_MEASURES:
+            if cancellation.get(field) is not None:
+                cancellation[field] = -cancellation[field]
+        cancellation["recordType"] = "ADJUSTMENT_CANCEL"
+        return cancellation
+
+    def preview_cancellation(self, context, row_id):
+        current = self.repo.get_effective_trade(context, row_id)
+        cancellation = self._cancel_row(current)
+        return {
+            "operationType": "TRADE_CANCELLATION",
+            "original": current,
+            "cancellation": cancellation,
+            "replacement": None,
+            "outputRows": [cancellation],
+            "changedFields": [
+                {
+                    "field": "businessEffect",
+                    "label": "Business effect",
+                    "oldValue": "ACTIVE",
+                    "newValue": "CANCELLED",
+                }
+            ],
+            "impactedStages": [],
+            "recalculatedFields": [],
+            "differences": [],
+            "rowVersion": row_version(current),
+            "context": context,
+            "actionType": "TRADE_CANCELLATION",
+        }
+
+    def commit_cancellation(self, request, user):
+        existing = self.repo.get_idempotent(request.idempotencyKey)
+        if existing:
+            return existing
+        current = self.repo.get_effective_trade(request.context, request.rowId)
+        if row_version(current) != request.expectedVersion:
+            raise ConflictError(
+                "The trade changed after cancellation preview. Refresh and preview again."
+            )
+        built = self.preview_cancellation(request.context, request.rowId)
+        return self.repo.commit_adjustment(
+            built, request.reason, user, request.idempotencyKey
+        )
+
+    @staticmethod
+    def _proxy_trade_no(context, draft_id):
+        try:
+            suffix = UUID(draft_id).hex[:8].upper()
+        except ValueError as exc:
+            raise DomainError("The proxy draft identifier is invalid.") from exc
+        return f"PROXY-{context.asofdate:%Y%m%d}-{suffix}"
+
+    def preview_proxy(self, context, draft_id, fields):
+        values = fields.model_dump(mode="json")
+        if values["amount"] == 0:
+            raise DomainError("A proxy amount cannot be zero.")
+        trade_no = self._proxy_trade_no(context, draft_id)
+        proxy = {
+            "rowId": trade_no,
+            "tradeKey": "|".join(
+                [values["foSystem"], trade_no, values.get("isin") or "", values["portfolio"]]
+            ),
+            "tradeNo": trade_no,
+            **values,
+            "asofdate": context.asofdate.isoformat(),
+            "recordType": "PROXY",
+            "eurAmount0d": 0.0,
+            "eurAmount7d": 0.0,
+            "eurAmount30d": 0.0,
+            "eurAmount3m": 0.0,
+            "lcrInflow": 0.0,
+            "lcrOutflow": 0.0,
+            "reserve": 0.0,
+            "exposureClass": "",
+            "hqlaLevel": "",
+            "reportingLineLcr": "",
+            "_outputRecordId": None,
+        }
+        stages = self.resolver.resolve(set(values))
+        proxy, recalculated = self.calc.recalculate(proxy, stages)
+        return {
+            "operationType": "PROXY",
+            "original": None,
+            "cancellation": None,
+            "replacement": proxy,
+            "outputRows": [proxy],
+            "changedFields": [
+                {
+                    "field": key,
+                    "label": self._label(key),
+                    "oldValue": None,
+                    "newValue": value,
+                }
+                for key, value in values.items()
+            ],
+            "impactedStages": stages,
+            "recalculatedFields": recalculated,
+            "differences": [],
+            "rowVersion": row_version(proxy),
+            "context": context,
+            "actionType": "PROXY",
+        }
+
+    def commit_proxy(self, request, user):
+        existing = self.repo.get_idempotent(request.idempotencyKey)
+        if existing:
+            return existing
+        built = self.preview_proxy(request.context, request.draftId, request.fields)
+        return self.repo.commit_adjustment(
+            built, request.reason, user, request.idempotencyKey
+        )
+
     def commit(self, request, user):
         existing = self.repo.get_idempotent(request.idempotencyKey)
         if existing:
@@ -263,14 +380,21 @@ class AdjustmentService:
         if existing:
             return existing
         target = self.repo.get_adjustment(request.rowId, batch_id, request.context)
-        current = self.repo.get_effective_trade(request.context, request.rowId)
-        cancellation = deepcopy(current)
-        for field in ADDITIVE_MEASURES:
-            if cancellation.get(field) is not None:
-                cancellation[field] = -cancellation[field]
-        cancellation["recordType"] = "ADJUSTMENT_CANCEL"
-        replacement = deepcopy(target["original"])
-        replacement["recordType"] = "ADJUSTMENT_REPLACEMENT"
+        target_action = target.get("actionType", "ADJUSTMENT")
+        if target_action == "TRADE_CANCELLATION":
+            current = target["cancellation"]
+            cancellation = None
+            replacement = deepcopy(target["original"])
+            replacement["recordType"] = "ADJUSTMENT_REPLACEMENT"
+        elif target_action == "PROXY":
+            current = self.repo.get_effective_trade(request.context, request.rowId)
+            cancellation = self._cancel_row(current)
+            replacement = None
+        else:
+            current = self.repo.get_effective_trade(request.context, request.rowId)
+            cancellation = self._cancel_row(current)
+            replacement = deepcopy(target["original"])
+            replacement["recordType"] = "ADJUSTMENT_REPLACEMENT"
         changed = [
             {
                 "field": x["field"],
@@ -285,6 +409,9 @@ class AdjustmentService:
             "original": current,
             "cancellation": cancellation,
             "replacement": replacement,
+            "outputRows": [
+                row for row in (cancellation, replacement) if row is not None
+            ],
             "changedFields": changed,
             "impactedStages": [],
             "recalculatedFields": target["recalculatedFields"],

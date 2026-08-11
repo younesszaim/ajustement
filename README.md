@@ -116,6 +116,18 @@ cd backend
 ../.venv/bin/python scripts/verify_hybrid_simulation.py
 ```
 
+The hybrid workflow supports three append-only operations:
+
+- `ADJUSTMENT`: one reversal and one adjusted replacement row.
+- `TRADE_CANCELLATION`: one reversal row; the trade has no active business row afterward.
+- `PROXY`: one new user-defined proxy row. The backend generates a stable trade
+  number such as `PROXY-20260811-A1B2C3D4`, while the output adapter generates
+  the physical `output_record_id`.
+
+For an existing hybrid simulation database, apply
+`backend/migrations/005_cancel_and_proxy_adjustments.sql` before using these
+operations. The schema installer applies migrations in filename order.
+
 The script injects a crash after the output commit, retries the same idempotency key, verifies exactly two generated output rows, and checks the net Power BI amount.
 
 For local development without writing the database password to `.env` or shell history, start the API with:
