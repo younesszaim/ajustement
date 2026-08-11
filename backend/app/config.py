@@ -7,6 +7,9 @@ EDITABLE_FIELDS = {
     "currency",
     "counterparty",
     "securityId",
+    "exposureClass",
+    "hqlaLevel",
+    "reportingLineLcr",
 }
 ADDITIVE_MEASURES = {
     "amount",
@@ -27,6 +30,10 @@ FIELD_DEPENDENCIES = {
     "targetInstrumentType": {"instrument_classification"},
     "counterparty": {"counterparty_enrichment"},
     "securityId": {"instrument_classification"},
+    # Manual overrides start after the stage that normally produces the field.
+    "exposureClass": {"hqla"},
+    "hqlaLevel": {"reporting_lines"},
+    "reportingLineLcr": {"lcr_impacts"},
 }
 STAGE_DEPENDENCIES = {
     "instrument_classification": set(),

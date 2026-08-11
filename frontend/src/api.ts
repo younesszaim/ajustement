@@ -8,6 +8,8 @@ import type {
   TradeLineage,
   AuthUser,
   MockAuthUser,
+  MappedField,
+  MappingRows,
 } from "./types";
 const json = async <T>(url: string, init?: RequestInit): Promise<T> => {
   const r = await fetch(url, { credentials: "include", ...init });
@@ -46,6 +48,15 @@ export const api = {
   globalHistory: (asofdate: string, asofdateflow: string) =>
     json<HistoryItem[]>(
       `/api/adjustments/history?asofdate=${encodeURIComponent(asofdate)}&asofdateflow=${encodeURIComponent(asofdateflow)}`,
+    ),
+  mappedFields: () => json<MappedField[]>("/api/mappings/fields"),
+  mappingValues: (field: string, search = "") =>
+    json<{ field: MappedField; values: string[] }>(
+      `/api/mappings/values?field=${encodeURIComponent(field)}&search=${encodeURIComponent(search)}`,
+    ),
+  mappingRows: (mappingName: string, search = "", page = 1) =>
+    json<MappingRows>(
+      `/api/mappings/${encodeURIComponent(mappingName)}/rows?search=${encodeURIComponent(search)}&page=${page}&pageSize=20`,
     ),
   reconcileAdjustment: (batchReference: string) =>
     post<{

@@ -20,6 +20,7 @@ import "./destructive-actions.css";
 import "./register-links.css";
 import "./trade-history.css";
 import "./auth.css";
+import "./mapping.css";
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <QueryClientProvider

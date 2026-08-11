@@ -81,12 +81,95 @@ def test_proxy_preview_generates_trade_and_calculated_output(setup):
     assert len(preview["outputRows"]) == 1
 
 
+def test_mapping_override_preserves_selected_step_and_recalculates_only_downstream(setup):
+    repo, _, context = setup
+
+    class MappingStub:
+        def validate_overrides(self, changes):
+            return [
+                {
+                    "field": "exposureClass",
+                    "value": changes["exposureClass"],
+                    "selectionType": "MANUAL_MAPPING_OVERRIDE",
+                    "mappingName": "exposure_class_mapping",
+                    "displayName": "Exposure class",
+                    "sourcePath": "s3://mock/latest/exposure.parquet",
+                    "outputColumn": "EXPOSURE_CLASS",
+                    "producerStage": "exposure_class",
+                    "downstreamStages": ["hqla", "reporting_lines", "lcr_impacts"],
+                }
+            ]
+
+    service = AdjustmentService(repo, MappingStub())
+    preview = service.preview(
+        context, "ROW-0001", {"exposureClass": "SOVEREIGN"}
+    )
+
+    assert preview["replacement"]["exposureClass"] == "SOVEREIGN"
+    assert "exposure_class" not in preview["impactedStages"]
+    assert preview["impactedStages"] == ["hqla", "reporting_lines", "lcr_impacts"]
+    assert preview["mappingOverrides"][0]["mappingName"] == "exposure_class_mapping"
+
+
+def test_hqla_override_is_not_overwritten_by_its_producer(setup):
+    repo, _, context = setup
+
+    class MappingStub:
+        def validate_overrides(self, changes):
+            return []
+
+    preview = AdjustmentService(repo, MappingStub()).preview(
+        context, "ROW-0001", {"hqlaLevel": "L2B"}
+    )
+
+    assert preview["replacement"]["hqlaLevel"] == "L2B"
+    assert "hqla" not in preview["impactedStages"]
+    assert preview["impactedStages"] == ["reporting_lines", "lcr_impacts"]
+
+
+def test_multiple_mapping_overrides_protect_every_selected_value(setup):
+    repo, _, context = setup
+
+    class MappingStub:
+        def validate_overrides(self, changes):
+            definitions = {
+                "exposureClass": ("exposure_class", ["hqla", "reporting_lines", "lcr_impacts"]),
+                "hqlaLevel": ("hqla", ["reporting_lines", "lcr_impacts"]),
+            }
+            return [
+                {
+                    "field": field,
+                    "value": value,
+                    "selectionType": "MANUAL_MAPPING_OVERRIDE",
+                    "mappingName": f"{field}_mapping",
+                    "displayName": field,
+                    "sourcePath": "s3://mock/latest.parquet",
+                    "outputColumn": field.upper(),
+                    "producerStage": definitions[field][0],
+                    "downstreamStages": definitions[field][1],
+                }
+                for field, value in changes.items()
+            ]
+
+    preview = AdjustmentService(repo, MappingStub()).preview(
+        context,
+        "ROW-0001",
+        {"exposureClass": "SOVEREIGN", "hqlaLevel": "L2B"},
+    )
+
+    assert preview["replacement"]["exposureClass"] == "SOVEREIGN"
+    assert preview["replacement"]["hqlaLevel"] == "L2B"
+    assert "exposure_class" not in preview["impactedStages"]
+    assert "hqla" not in preview["impactedStages"]
+    assert preview["impactedStages"] == ["reporting_lines", "lcr_impacts"]
+
+
 def test_invalid_changes(setup):
     _, s, c = setup
     with pytest.raises(DomainError):
         s.preview(c, "ROW-0001", {"amount": 1_000_000})
     with pytest.raises(DomainError):
-        s.preview(c, "ROW-0001", {"hqlaLevel": "L2"})
+        s.preview(c, "ROW-0001", {"lcrOutflow": 999})
 
 
 def test_concurrency_and_idempotency(setup):

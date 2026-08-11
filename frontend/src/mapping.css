@@ -1,0 +1,234 @@
+.mapping-selector {
+  position: relative;
+}
+.mapping-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid #b8cec4;
+  border-radius: 6px;
+  background: #f7fbf9;
+  padding: 8px 9px;
+  text-align: left;
+}
+.mapping-trigger svg {
+  color: #007a4d;
+}
+.mapping-popover {
+  position: absolute;
+  z-index: 90;
+  top: calc(100% + 6px);
+  right: 0;
+  width: min(360px, calc(100vw - 32px));
+  border: 1px solid #d7e1dc;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 18px 45px rgb(0 65 43 / 15%);
+  overflow: hidden;
+}
+.mapping-search,
+.mapping-table-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid #e4e4e7;
+  padding: 10px 12px;
+}
+.mapping-search input,
+.mapping-table-search input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+}
+.mapping-options {
+  max-height: 230px;
+  overflow-y: auto;
+  padding: 6px;
+}
+.mapping-options button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 5px;
+  background: #fff;
+  padding: 8px;
+  text-align: left;
+}
+.mapping-options button:hover,
+.mapping-options button[aria-selected="true"] {
+  background: #edf7f2;
+}
+.mapping-options button svg {
+  visibility: hidden;
+  color: #007a4d;
+}
+.mapping-options button[aria-selected="true"] svg {
+  visibility: visible;
+}
+.mapping-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 20px;
+  color: #71717a;
+}
+.mapping-source {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid #e4e4e7;
+  background: #fafafa;
+  padding: 10px 12px;
+}
+.mapping-source div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.mapping-source span,
+.mapping-table-meta span {
+  color: #71717a;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+.mapping-source strong {
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mapping-source button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: #007a4d;
+  font-size: 10px;
+  font-weight: 700;
+}
+.mapping-table-back {
+  z-index: 140;
+  align-items: flex-start;
+  overflow-y: auto;
+  padding: 32px 18px;
+}
+.mapping-table-dialog {
+  width: min(1100px, 100%);
+  margin: auto;
+  border-radius: 10px;
+  background: #fff;
+  padding: 22px;
+}
+.mapping-table-dialog > header,
+.mapping-table-dialog > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+.mapping-table-dialog h2 {
+  margin: 4px 0;
+}
+.mapping-table-dialog header p {
+  margin: 0;
+  color: #71717a;
+}
+.mapping-table-meta {
+  display: grid;
+  grid-template-columns: 1fr 2fr 1fr;
+  gap: 12px;
+  margin: 20px 0;
+}
+.mapping-table-meta > div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  border-left: 2px solid #007a4d;
+  background: #f7fbf9;
+  padding: 10px;
+}
+.mapping-table-meta code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mapping-table-search {
+  border: 1px solid #d4d4d8;
+  border-radius: 6px;
+  margin-bottom: 14px;
+}
+.mapping-table-scroll {
+  overflow-x: auto;
+  border: 1px solid #e4e4e7;
+  border-radius: 7px;
+}
+.mapping-table-scroll table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.mapping-table-scroll th,
+.mapping-table-scroll td {
+  border-bottom: 1px solid #e4e4e7;
+  padding: 9px 10px;
+  text-align: left;
+  white-space: nowrap;
+}
+.mapping-table-scroll th {
+  background: #fafafa;
+  color: #52525b;
+  font-size: 10px;
+}
+.mapping-output {
+  background: #edf7f2;
+  color: #006b43;
+  font-weight: 800;
+}
+.mapping-table-dialog > footer {
+  margin-top: 14px;
+}
+.mapping-table-dialog footer div,
+.mapping-table-dialog footer button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.mapping-override-summary {
+  border-left: 3px solid #007a4d;
+  background: #f3faf7;
+}
+.history-mapping-overrides {
+  display: grid;
+  gap: 5px;
+  margin: 10px 0;
+  border-left: 2px solid #007a4d;
+  background: #f7fbf9;
+  padding: 9px 10px;
+  font-size: 11px;
+}
+.mapping-table-dialog footer button {
+  border: 1px solid #d4d4d8;
+  border-radius: 5px;
+  background: #fff;
+  padding: 7px 9px;
+}
+@media (max-width: 700px) {
+  .mapping-table-meta {
+    grid-template-columns: 1fr;
+  }
+  .mapping-table-dialog > header,
+  .mapping-table-dialog > footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

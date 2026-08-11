@@ -108,8 +108,9 @@ class MockCalculationAdapter:
 
 
 class AdjustmentService:
-    def __init__(self, repository):
+    def __init__(self, repository, mapping_provider=None):
         self.repo = repository
+        self.mappings = mapping_provider
         self.resolver = DependencyResolver()
         self.calc = MockCalculationAdapter()
 
@@ -128,9 +129,16 @@ class AdjustmentService:
                 actual["amount"] = float(Decimal(str(actual["amount"])))
             except Exception as exc:
                 raise DomainError("Amount must be numeric.") from exc
+        mapping_overrides = (
+            self.mappings.validate_overrides(actual) if self.mappings else []
+        )
         replacement = deepcopy(current)
         replacement.update(actual)
         stages = self.resolver.resolve(set(actual))
+        protected_producers = {
+            override["producerStage"] for override in mapping_overrides
+        }
+        stages = [stage for stage in stages if stage not in protected_producers]
         replacement, recalculated = self.calc.recalculate(replacement, stages)
         cancellation = deepcopy(current)
         for field in ADDITIVE_MEASURES:
@@ -175,6 +183,7 @@ class AdjustmentService:
             "differences": diffs,
             "rowVersion": row_version(current),
             "context": context,
+            "mappingOverrides": mapping_overrides,
         }
 
     @staticmethod

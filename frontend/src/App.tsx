@@ -10,10 +10,12 @@ import {
   AlertCircle,
   ArrowRight,
   CalendarDays,
+  BookOpen,
   Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronsUpDown,
   Clock3,
   History,
   Loader2,
@@ -32,6 +34,7 @@ import type {
   ProxyFields,
   Trade,
   AuthUser,
+  MappedField,
 } from "./types";
 const money = new Intl.NumberFormat("en-GB", {
   minimumFractionDigits: 2,
@@ -62,6 +65,9 @@ const editable = [
   ["amount", "number"],
   ["currency", "select"],
   ["counterparty", "text"],
+  ["exposureClass", "mapping"],
+  ["hqlaLevel", "mapping"],
+  ["reportingLineLcr", "mapping"],
 ] as const;
 const summary = [
   "tradeNo",
@@ -135,8 +141,16 @@ export function App({
       counterparty: "",
     }),
     [proxyPreview, setProxyPreview] = useState<Preview | null>(null),
-    [proxyReason, setProxyReason] = useState("");
+    [proxyReason, setProxyReason] = useState(""),
+    [mappingTable, setMappingTable] = useState<MappedField | null>(null);
   const dates = useQuery({ queryKey: ["dates"], queryFn: api.dates });
+  const mappedFields = useQuery({
+    queryKey: ["mapped-fields"],
+    queryFn: api.mappedFields,
+  });
+  const mappingByField = new Map(
+    mappedFields.data?.map((definition) => [definition.fieldName, definition]),
+  );
   useEffect(() => {
     if (!date && dates.data?.length) setDate(dates.data[0]);
   }, [dates.data, date]);
@@ -1153,7 +1167,18 @@ export function App({
                         <ArrowRight className="arrow" />
                         <div>
                           <small>Adjusted</small>
-                          {type === "select" ? (
+                          {type === "mapping" && mappingByField.get(field) ? (
+                            <MappingValueSelector
+                              definition={mappingByField.get(field)!}
+                              value={String(
+                                changes[field] ?? detail.data![field] ?? "",
+                              )}
+                              onChange={(value) => change(field, value)}
+                              viewTable={() =>
+                                setMappingTable(mappingByField.get(field)!)
+                              }
+                            />
+                          ) : type === "select" ? (
                             <select
                               value={String(
                                 changes[field] ?? detail.data![field] ?? "",
@@ -1378,6 +1403,12 @@ export function App({
           }}
         />
       )}
+      {mappingTable && (
+        <MappingTableDialog
+          definition={mappingTable}
+          close={() => setMappingTable(null)}
+        />
+      )}
       {revertTarget && (
         <div className="modal-back">
           <div className="modal revert-modal">
@@ -1439,6 +1470,198 @@ export function App({
         </div>
       )}
     </>
+  );
+}
+function MappingValueSelector({
+  definition,
+  value,
+  onChange,
+  viewTable,
+}: {
+  definition: MappedField;
+  value: string;
+  onChange: (value: string) => void;
+  viewTable: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const root = useRef<HTMLDivElement>(null);
+  const values = useQuery({
+    queryKey: ["mapping-values", definition.fieldName, search],
+    queryFn: () => api.mappingValues(definition.fieldName, search),
+    enabled: open,
+  });
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+  return (
+    <div className="mapping-selector" ref={root}>
+      <button
+        className="mapping-trigger"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span>{value || "Select a mapped value"}</span>
+        <ChevronsUpDown />
+      </button>
+      {open && (
+        <div className="mapping-popover">
+          <div className="mapping-search">
+            <Search />
+            <input
+              autoFocus
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search possible values…"
+            />
+          </div>
+          <div className="mapping-options" role="listbox">
+            {values.isLoading ? (
+              <span className="mapping-empty"><Loader2 className="spin" /> Loading…</span>
+            ) : values.data?.values.length ? (
+              values.data.values.map((option) => (
+                <button
+                  role="option"
+                  aria-selected={option === value}
+                  key={option}
+                  onClick={() => {
+                    onChange(option);
+                    setOpen(false);
+                  }}
+                >
+                  <Check />
+                  <span>{option}</span>
+                </button>
+              ))
+            ) : (
+              <span className="mapping-empty">No mapping value found.</span>
+            )}
+          </div>
+          <div className="mapping-source">
+            <div>
+              <span>Latest mapping</span>
+              <strong>{definition.mappingName}</strong>
+            </div>
+            <button
+              onClick={() => {
+                setOpen(false);
+                viewTable();
+              }}
+            >
+              <BookOpen /> View mapping table
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MappingTableDialog({
+  definition,
+  close,
+}: {
+  definition: MappedField;
+  close: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const rows = useQuery({
+    queryKey: ["mapping-rows", definition.mappingName, search, page],
+    queryFn: () => api.mappingRows(definition.mappingName, search, page),
+  });
+  const columns = Array.from(
+    new Set(
+      rows.data?.items.flatMap((item) =>
+        Object.keys(item).filter((key) => key !== "rowNumber"),
+      ) ?? [],
+    ),
+  );
+  return (
+    <div className="modal-back mapping-table-back">
+      <section className="mapping-table-dialog">
+        <header>
+          <div>
+            <span className="eyebrow">LATEST AVAILABLE MAPPING</span>
+            <h2>{definition.displayName}</h2>
+            <p>{definition.description}</p>
+          </div>
+          <button onClick={close}>Close ×</button>
+        </header>
+        <div className="mapping-table-meta">
+          <div>
+            <span>Mapping name</span>
+            <strong>{definition.mappingName}</strong>
+          </div>
+          <div>
+            <span>S3 source</span>
+            <code>{definition.sourcePath}</code>
+          </div>
+          <div>
+            <span>Selected output</span>
+            <strong>{definition.outputColumn}</strong>
+          </div>
+        </div>
+        <label className="mapping-table-search">
+          <Search />
+          <input
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setPage(1);
+            }}
+            placeholder="Filter mapping rows…"
+          />
+        </label>
+        <div className="mapping-table-scroll">
+          {rows.isLoading ? (
+            <div className="empty"><Loader2 className="spin" /> Loading mapping…</div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  {columns.map((column) => <th key={column}>{column}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.data?.items.map((item) => (
+                  <tr key={item.rowNumber}>
+                    <td>{item.rowNumber}</td>
+                    {columns.map((column) => (
+                      <td key={column} className={column === definition.outputColumn ? "mapping-output" : ""}>
+                        {fmt(item[column])}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <footer>
+          <span>{rows.data?.total ?? 0} mapping row(s)</span>
+          <div>
+            <button disabled={page === 1} onClick={() => setPage((value) => value - 1)}>
+              <ChevronLeft /> Previous
+            </button>
+            <span>Page {page}</span>
+            <button
+              disabled={page * 20 >= (rows.data?.total ?? 0)}
+              onClick={() => setPage((value) => value + 1)}
+            >
+              Next <ChevronRight />
+            </button>
+          </div>
+        </footer>
+      </section>
+    </div>
   );
 }
 function UserMenu({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
@@ -1972,6 +2195,16 @@ function HistoryEntry({
             </div>
           </div>
           <blockquote>{h.reason}</blockquote>
+          {!!h.mappingOverrides?.length && (
+            <div className="history-mapping-overrides">
+              {h.mappingOverrides.map((override) => (
+                <span key={override.field}>
+                  Manual mapping override · {override.displayName}:{" "}
+                  <strong>{fmt(override.value)}</strong>
+                </span>
+              ))}
+            </div>
+          )}
           <div className="history-changes">
             {h.changedFields.map((c) => (
               <div key={c.field}>
@@ -2196,6 +2429,19 @@ function PreviewView({
       </div>
       <section className="changes">
         <h3>Calculation result</h3>
+        {preview.mappingOverrides?.map((override) => (
+          <div className="mapping-override-summary" key={override.field}>
+            <span>Manual mapping override</span>
+            <strong>
+              {override.displayName}: {fmt(override.value)}
+            </strong>
+            <ArrowRight />
+            <span>
+              Recalculate{" "}
+              {override.downstreamStages.join(" → ") || "no downstream stage"}
+            </span>
+          </div>
+        ))}
         {preview.differences.map((d) => (
           <div key={d.field}>
             <span>{d.label}</span>

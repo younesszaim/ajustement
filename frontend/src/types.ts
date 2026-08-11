@@ -66,6 +66,7 @@ export interface Preview {
   recalculatedFields: string[];
   differences: Difference[];
   rowVersion: string;
+  mappingOverrides?: MappingOverride[];
 }
 export interface BatchPreview {
   items: Preview[];
@@ -102,6 +103,30 @@ export interface HistoryItem {
   original: Trade | null;
   cancellation: Trade | null;
   replacement: Trade | null;
+  mappingOverrides?: MappingOverride[];
+}
+
+export interface MappedField {
+  fieldName: string;
+  mappingName: string;
+  displayName: string;
+  description: string;
+  sourcePath: string;
+  outputColumn: string;
+  producerStage: string;
+  downstreamStages: string[];
+}
+export interface MappingOverride extends MappedField {
+  field: string;
+  value: unknown;
+  selectionType: "MANUAL_MAPPING_OVERRIDE";
+}
+export interface MappingRows {
+  mapping: MappedField;
+  items: ({ rowNumber: number } & Record<string, unknown>)[];
+  page: number;
+  pageSize: number;
+  total: number;
 }
 
 export interface ProxyFields {

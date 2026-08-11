@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS adjustment_meta.item_snapshots (
     changed_fields jsonb NOT NULL DEFAULT '[]',
     recalculated_fields jsonb NOT NULL DEFAULT '[]',
     impacted_stages jsonb NOT NULL DEFAULT '[]',
+    mapping_overrides jsonb NOT NULL DEFAULT '[]',
     created_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE(adjustment_batch_id,source_output_record_id)
 );

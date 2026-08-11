@@ -252,8 +252,8 @@ class PostgresSimulationAuditRepository:
                             adjustment_batch_id,source_output_record_id,parent_output_record_id,
                             cancellation_output_record_id,replacement_output_record_id,trade_no,fo_system,
                             expected_row_version,original_snapshot,cancellation_snapshot,replacement_snapshot,
-                            changed_fields,recalculated_fields,impacted_stages)
-                            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING snapshot_id""",
+                            changed_fields,recalculated_fields,impacted_stages,mapping_overrides)
+                            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING snapshot_id""",
                         (
                             batch_row["adjustment_batch_id"],source["rowId"],
                             original.get("_outputRecordId") if original else None,
@@ -265,7 +265,7 @@ class PostgresSimulationAuditRepository:
                             Jsonb(cancellation) if cancellation else None,
                             Jsonb(replacement) if replacement else None,
                             Jsonb(built["changedFields"]),Jsonb(built["recalculatedFields"]),
-                            Jsonb(built.get("impactedStages", [])),
+                            Jsonb(built.get("impactedStages", [])),Jsonb(built.get("mappingOverrides", [])),
                         ),
                     ).fetchone()
                     for change in built["changedFields"]:
@@ -348,6 +348,7 @@ class PostgresSimulationAuditRepository:
             "original": row["original_snapshot"],
             "cancellation": row["cancellation_snapshot"],
             "replacement": row["replacement_snapshot"],
+            "mappingOverrides": row.get("mapping_overrides") or [],
         }
 
     def get_history(self, project_key, row_id):
@@ -425,6 +426,7 @@ class PostgresSimulationAuditRepository:
                         "original": original,
                         "cancellation": item["cancellation"],
                         "replacement": item["replacement"],
+                        "mappingOverrides": item.get("mappingOverrides", []),
                     }
                 )
         return result

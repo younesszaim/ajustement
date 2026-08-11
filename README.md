@@ -159,6 +159,31 @@ For an existing hybrid simulation database, apply
 `backend/migrations/005_cancel_and_proxy_adjustments.sql` before using these
 operations. The schema installer applies migrations in filename order.
 
+### Mapping-assisted manual overrides
+
+Migration `006_mapping_simulation.sql` creates `mapping_sim`, a Supabase mock
+of the production mapping registry and latest Parquet content. The registry
+maps a LiMon field to a mapping name, latest S3 path, output column, producer
+stage, and downstream calculation stages.
+
+The initial controlled override fields are:
+
+- `exposureClass`: skips `exposure_class`, then recalculates HQLA, reporting
+  lines, and LCR impacts;
+- `hqlaLevel`: skips `hqla`, then recalculates reporting lines and LCR impacts;
+- `reportingLineLcr`: skips `reporting_lines`, then recalculates LCR impacts.
+
+The adjustment UI loads distinct values from the latest mapping output column
+and provides a paginated mapping-table viewer. Preview and commit validate the
+selected value again on the backend. Upstream fields are never changed to fit
+the override. The selected mapping name, S3 source, output column, producer,
+and downstream stages are stored with the audit snapshot.
+
+Set `MAPPING_DB_URL` for a separate mapping connection. In hybrid simulation it
+falls back to `METADATA_DB_URL`; in Supabase-only mode it falls back to
+`SUPABASE_DB_URL`. The future S3 Parquet provider must implement the same
+`fields`, `values`, `rows`, and `validate_overrides` contract.
+
 The script injects a crash after the output commit, retries the same idempotency key, verifies exactly two generated output rows, and checks the net Power BI amount.
 
 For local development without writing the database password to `.env` or shell history, start the API with:

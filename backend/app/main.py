@@ -34,6 +34,7 @@ from .auth import (
     current_identity,
     require,
 )
+from .mappings import build_mapping_provider
 
 load_dotenv()
 storage_mode = os.getenv("STORAGE_MODE", "supabase").lower()
@@ -53,7 +54,8 @@ app.add_middleware(
     allow_credentials=True,
 )
 repo = build_repository()
-service = AdjustmentService(repo)
+mapping_provider = build_mapping_provider()
+service = AdjustmentService(repo, mapping_provider)
 
 
 def audit(event, metadata, identity, context=None, row_id=None):
@@ -193,6 +195,38 @@ def global_history(
     identity=Depends(require(READ)),
 ):
     return repo.get_global_history(asofdate, asofdateflow)
+
+
+@app.get("/api/mappings/fields")
+def mapped_fields(identity=Depends(require(READ))):
+    return mapping_provider.fields()
+
+
+@app.get("/api/mappings/values")
+def mapping_values(
+    field: str,
+    search: str = "",
+    limit: int = Query(50, ge=1, le=200),
+    identity=Depends(require(PREVIEW)),
+):
+    try:
+        return mapping_provider.values(field, search, limit)
+    except DomainError as exc:
+        fail(exc)
+
+
+@app.get("/api/mappings/{mapping_name}/rows")
+def mapping_rows(
+    mapping_name: str,
+    search: str = "",
+    page: int = Query(1, ge=1),
+    pageSize: int = Query(20, ge=1, le=100),
+    identity=Depends(require(READ)),
+):
+    try:
+        return mapping_provider.rows(mapping_name, search, page, pageSize)
+    except DomainError as exc:
+        fail(exc)
 
 
 @app.post("/api/adjustments/impact")
