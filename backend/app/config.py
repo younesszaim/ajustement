@@ -1,3 +1,6 @@
+from .mapping_config import MAPPING_FIELDS
+
+
 EDITABLE_FIELDS = {
     "targetInstrumentType",
     "issue",
@@ -30,11 +33,13 @@ FIELD_DEPENDENCIES = {
     "targetInstrumentType": {"instrument_classification"},
     "counterparty": {"counterparty_enrichment"},
     "securityId": {"instrument_classification"},
-    # Manual overrides start after the stage that normally produces the field.
-    "exposureClass": {"hqla"},
-    "hqlaLevel": {"reporting_lines"},
-    "reportingLineLcr": {"lcr_impacts"},
 }
+FIELD_DEPENDENCIES.update(
+    {
+        field_name: {definition["recalculationStartStage"]}
+        for field_name, definition in MAPPING_FIELDS.items()
+    }
+)
 STAGE_DEPENDENCIES = {
     "instrument_classification": set(),
     "issuer_enrichment": set(),

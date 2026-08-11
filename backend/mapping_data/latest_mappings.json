@@ -1,0 +1,5 @@
+{
+  "exposure_class_mapping": "examples/exposure_class_2026-08-12.parquet",
+  "hqla_mapping": "examples/hqla_2026-08-12.parquet",
+  "reporting_line_mapping": "examples/reporting_line_2026-08-12.parquet"
+}

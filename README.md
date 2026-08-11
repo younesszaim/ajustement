@@ -161,10 +161,11 @@ operations. The schema installer applies migrations in filename order.
 
 ### Mapping-assisted manual overrides
 
-Migration `006_mapping_simulation.sql` creates `mapping_sim`, a Supabase mock
-of the production mapping registry and latest Parquet content. The registry
-maps a LiMon field to a mapping name, latest S3 path, output column, producer
-stage, and downstream calculation stages.
+Mapping content is read directly from Parquet; it is not duplicated in
+PostgreSQL. `backend/mapping_data/latest_mappings.json` maps each mapping name
+to the latest immutable local or `s3://` Parquet path. Field names, output
+columns, and downstream calculation stages are configured in
+`backend/app/mapping_config.py`.
 
 The initial controlled override fields are:
 
@@ -173,16 +174,27 @@ The initial controlled override fields are:
 - `hqlaLevel`: skips `hqla`, then recalculates reporting lines and LCR impacts;
 - `reportingLineLcr`: skips `reporting_lines`, then recalculates LCR impacts.
 
-The adjustment UI loads distinct values from the latest mapping output column
-and provides a paginated mapping-table viewer. Preview and commit validate the
-selected value again on the backend. Upstream fields are never changed to fit
-the override. The selected mapping name, S3 source, output column, producer,
-and downstream stages are stored with the audit snapshot.
+The adjustment UI loads distinct values from the configured Parquet output
+column and provides a paginated mapping-table viewer. Preview and commit
+validate the selected value again on the backend. Upstream fields are never
+changed to fit the override. The resolved path, selected value, output column,
+producer, and downstream stages are stored with the audit snapshot.
 
-Set `MAPPING_DB_URL` for a separate mapping connection. In hybrid simulation it
-falls back to `METADATA_DB_URL`; in Supabase-only mode it falls back to
-`SUPABASE_DB_URL`. The future S3 Parquet provider must implement the same
-`fields`, `values`, `rows`, and `validate_overrides` contract.
+The repository includes three example Parquet files under
+`backend/mapping_data/examples`. Regenerate and inspect them with:
+
+```bash
+cd backend
+../.venv/bin/python scripts/generate_example_mappings.py
+../.venv/bin/python scripts/read_mapping_parquet.py \
+  mapping_data/examples/exposure_class_2026-08-12.parquet
+```
+
+Set `MAPPING_MANIFEST_PATH` to use another manifest. In production, replace the
+local paths in that JSON with the versioned S3 paths supplied by LiMon. The
+runtime uses the normal AWS credential chain when PyArrow reads `s3://` data.
+Migration `006_mapping_audit_metadata.sql` adds only the JSON audit column; it
+does not create a mapping schema or mapping tables.
 
 The script injects a crash after the output commit, retries the same idempotency key, verifies exactly two generated output rows, and checks the net Power BI amount.
 
