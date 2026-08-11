@@ -40,6 +40,11 @@ class HybridAdjustmentRepository:
     def get_effective_trade(self, *args):
         return self.output.get_effective_trade(*args)
 
+    def get_trade_detail(self, *args):
+        if hasattr(self.output, "get_trade_detail"):
+            return self.output.get_trade_detail(*args)
+        return self.output.get_effective_trade(*args)
+
     def get_lineage(self, *args):
         return self.output.get_lineage(*args)
 

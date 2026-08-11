@@ -196,6 +196,27 @@ class PostgresVerticaSimulatorRepository:
             raise DomainError("This trade is cancelled and has no active business row.")
         return self._domain(active)
 
+    def get_trade_detail(self, context, row_id):
+        """Return a readable trade even when its latest operation cancelled it."""
+        with self.connection() as connection:
+            rows = self._lineage_rows(connection, context, row_id)
+        if not rows:
+            raise DomainError("Trade not found in the selected LiMon version.")
+        active = self._active(rows)
+        display = active or max(
+            (row for row in rows if row["record_type"] != "ADJUSTMENT_CANCEL"),
+            key=lambda row: (row["created_at"], row["output_record_id"]),
+        )
+        result = self._domain(display)
+        result.update(
+            {
+                "isCancelled": active is None,
+                "isActive": active is not None,
+                "activeRecordType": active["record_type"] if active else "CANCELLED",
+            }
+        )
+        return result
+
     def get_lineage(self, context, row_id):
         with self.connection() as connection:
             rows = self._lineage_rows(connection, context, row_id)

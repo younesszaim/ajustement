@@ -1056,6 +1056,14 @@ export function App({
                       Close selected trade
                     </button>
                     {tab === "current" && (
+                      detail.data.isCancelled ? (
+                        <button
+                          className="outline"
+                          onClick={() => setTab("history")}
+                        >
+                          View cancellation history <History />
+                        </button>
+                      ) : (
                       <>
                         <button
                           className="cancel-trade-button"
@@ -1075,6 +1083,7 @@ export function App({
                           <ArrowRight />
                         </button>
                       </>
+                      )
                     )}
                   </div>
                 ))}
@@ -1111,14 +1120,18 @@ export function App({
                           ADJUSTED {lineage.data.adjustmentCount}×
                         </span>
                       )}
+                      {detail.data.isCancelled && (
+                        <span className="cancelled-flag">CANCELLED · NO ACTIVE ROW</span>
+                      )}
                     </div>
                     <h3>
                       {detail.data.targetInstrumentType} ·{" "}
                       {detail.data.currency} {money.format(detail.data.amount)}
                     </h3>
                     <p>
-                      {detail.data.isin} · {detail.data.portfolio} · matures{" "}
-                      {detail.data.maturityDate}
+                      {detail.data.isCancelled
+                        ? "This trade was cancelled by an append-only reversal. Open History to inspect or revert the cancellation."
+                        : `${detail.data.isin} · ${detail.data.portfolio} · matures ${detail.data.maturityDate}`}
                     </p>
                   </div>
                   <div className="summary-grid">

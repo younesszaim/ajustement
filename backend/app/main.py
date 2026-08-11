@@ -161,7 +161,11 @@ def detail(
 ):
     try:
         context = LimonContext(asofdate=asofdate, asofdateflow=asofdateflow)
-        result = repo.get_effective_trade(context, row_id)
+        result = (
+            repo.get_trade_detail(context, row_id)
+            if hasattr(repo, "get_trade_detail")
+            else repo.get_effective_trade(context, row_id)
+        )
         audit("TRADE_VIEWED", {}, identity, context, row_id)
         return result
     except (DomainError, ValueError) as exc:

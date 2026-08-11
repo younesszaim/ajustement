@@ -38,6 +38,7 @@ export interface Trade {
   activeRecordType?: RecordType;
   lineageRole?: "ORIGINAL" | "REVERSAL" | "ADJUSTED";
   isActive?: boolean;
+  isCancelled?: boolean;
   adjustmentBatchId?: string | null;
   lineageTimestamp?: string | null;
   [key: string]: unknown;
