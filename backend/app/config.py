@@ -19,7 +19,7 @@ ADDITIVE_MEASURES = {
     "reserve",
 }
 FIELD_DEPENDENCIES = {
-    "amount": {"eur_amount"},
+    "amount": {"eur_amount", "buckets"},
     "currency": {"eur_amount"},
     "maturityDate": {"buckets"},
     "valueDate": {"buckets"},

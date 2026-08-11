@@ -171,14 +171,29 @@ aside p,
   margin-bottom: 5px;
 }
 .notice {
+  position: fixed;
+  top: 72px;
+  right: 24px;
+  z-index: 100;
+  width: min(430px, calc(100vw - 32px));
   display: flex;
   align-items: center;
   gap: 8px;
   border: 1px solid #d4d4d8;
   background: #fff;
   padding: 10px 12px;
-  margin-top: 12px;
+  margin: 0;
   border-radius: 6px;
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.18);
+}
+.notice.notice-error {
+  border-color: #dc2626;
+  background: #fef2f2;
+  color: #991b1b;
+}
+.notice.notice-error > svg {
+  flex: 0 0 auto;
+  color: #dc2626;
 }
 .notice button {
   margin-left: auto;

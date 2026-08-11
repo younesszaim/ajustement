@@ -41,6 +41,16 @@ def main():
         print(
             f"Data counts: output_rows={counts[0]}, adjustment_batches={counts[1]}, action_events={counts[2]}"
         )
+        simulation = connection.execute("""SELECT
+          (SELECT count(*) FROM vertica_sim.output_completude_table) AS output_rows,
+          (SELECT count(*) FROM adjustment_meta.requests) AS requests,
+          (SELECT count(*) FROM adjustment_meta.batches) AS batches,
+          (SELECT count(*) FROM adjustment_meta.item_snapshots) AS snapshots""").fetchone()
+        print(
+            "Hybrid simulation: "
+            f"output_rows={simulation[0]}, requests={simulation[1]}, "
+            f"batches={simulation[2]}, snapshots={simulation[3]}"
+        )
 
 
 if __name__ == "__main__":

@@ -22,7 +22,7 @@ repo   resolver     service
                    Vertica
 ```
 
-The running application uses Supabase/PostgreSQL storage exclusively. The in-memory repository is retained only as an isolated automated-test fixture and is never selected by FastAPI. Business calculations still live behind `MockCalculationAdapter` until the production LiMon functions are connected through `backend/app/adapters/limon_calculation_adapter.py`.
+The application supports Supabase-only storage, a two-schema hybrid simulator, and a real Vertica/PostgreSQL adapter boundary. The in-memory repository is retained only as an isolated automated-test fixture. Business calculations still live behind `MockCalculationAdapter` until the production LiMon functions are connected through `backend/app/adapters/limon_calculation_adapter.py`.
 
 ## Run locally
 
@@ -92,6 +92,47 @@ The reusable migration is [backend/migrations/001_supabase_adjustment_storage.sq
 Database triggers reject updates and deletes from output and audit tables. Reverts are new append-only batches. Supabase RLS is enabled and `anon`/`authenticated` access is revoked because all access must pass through FastAPI.
 
 ## Real LiMon: Vertica output + PostgreSQL metadata
+
+### Hybrid simulation in Supabase
+
+Migration `004_hybrid_simulation.sql` creates two deliberately isolated schemas:
+
+- `vertica_sim`: `output_completude_table` plus the technical idempotency link table;
+- `adjustment_meta`: requests, committed batches, snapshots, field changes, and action events.
+
+Run the web application against them with separate connection factories, even when both URLs point to the same Supabase project:
+
+```env
+STORAGE_MODE=hybrid_sim
+ADJUSTMENT_PROJECT_KEY=limon_ldp_bmf
+OUTPUT_DB_URL=postgresql://USER:PASSWORD@HOST:5432/postgres?sslmode=require
+METADATA_DB_URL=postgresql://USER:PASSWORD@HOST:5432/postgres?sslmode=require
+```
+
+The simulator never performs a cross-schema transaction or join from application code. Test crash recovery and duplicate prevention interactively with:
+
+```bash
+cd backend
+../.venv/bin/python scripts/verify_hybrid_simulation.py
+```
+
+The script injects a crash after the output commit, retries the same idempotency key, verifies exactly two generated output rows, and checks the net Power BI amount.
+
+For local development without writing the database password to `.env` or shell history, start the API with:
+
+```bash
+cd backend
+../.venv/bin/python scripts/run_hybrid_sim.py
+```
+
+Enter the password at the private prompt, then start the Vite frontend normally in a second terminal.
+If the API uses a non-default port, point Vite to it without exposing any database secret:
+
+```bash
+VITE_API_PROXY_TARGET=http://127.0.0.1:8001 npm run dev
+```
+
+### Production hybrid mode
 
 Set `STORAGE_MODE=hybrid`. In this mode, the repository composition keeps `output_completude_table` and all physical cancellation/replacement rows in Vertica, while Supabase stores coordinator state, immutable audit snapshots, changes, idempotency, and user events. The API and adjustment service do not change.
 

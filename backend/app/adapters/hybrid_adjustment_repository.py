@@ -6,7 +6,9 @@ batch reference. A recovery worker can safely finish a request after a crash.
 """
 
 from __future__ import annotations
+import os
 from .postgres_audit_repository import PostgresAuditRepository
+from ..services import InfrastructureError
 
 
 class HybridAdjustmentRepository:
@@ -19,6 +21,12 @@ class HybridAdjustmentRepository:
         self.output = output_repository
         self.audit = audit_repository
         self.project_key = project_key
+
+    def health(self):
+        return {
+            "output": self.output.health() if hasattr(self.output, "health") else None,
+            "metadata": self.audit.health() if hasattr(self.audit, "health") else None,
+        }
 
     def asofdates(self):
         return self.output.asofdates()
@@ -42,15 +50,101 @@ class HybridAdjustmentRepository:
         return self.audit.get_global_history(self.project_key, asofdate, asofdateflow)
 
     def get_idempotent(self, key):
-        return self.audit.get_idempotent_result(self.project_key, key)
+        completed = self.audit.get_idempotent_result(self.project_key, key)
+        if completed:
+            return completed
+        if not hasattr(self.audit, "get_recovery_request"):
+            return None
+        recovery = self.audit.get_recovery_request(self.project_key, key)
+        if not recovery:
+            return None
+        external_rows = self.output.get_rows_by_batch_reference(
+            recovery["batchReference"]
+        )
+        if not external_rows:
+            return None
+        if len(external_rows) != len(recovery["items"]) * 2:
+            raise RuntimeError(
+                "Output contains a partial adjustment batch; reconciliation is required."
+            )
+        external_ids = [row["_outputRecordId"] for row in external_rows]
+        self.audit.mark_vertica_committed(recovery["requestId"], external_ids)
+        return self.audit.finalize_request(
+            recovery["requestId"],
+            {
+                "actionType": recovery["actionType"],
+                "reason": recovery["reason"],
+                "user": recovery["user"],
+                "context": recovery["items"][0]["context"],
+                "revertedAdjustmentBatchId": recovery[
+                    "revertedAdjustmentBatchId"
+                ],
+            },
+            recovery["items"],
+        )
 
     def record_action(self, *args, **kwargs):
-        return self.audit.record_action(*args, **kwargs)
+        kwargs.setdefault("project_key", self.project_key)
+        try:
+            return self.audit.record_action(*args, **kwargs)
+        except TypeError:
+            # The real adapter keeps the original protocol until its enterprise
+            # implementation is upgraded to accept a project key explicitly.
+            kwargs.pop("project_key", None)
+            return self.audit.record_action(*args, **kwargs)
 
     def get_adjustment(self, row_id, batch_id, context):
         return self.audit.get_latest_revertible(
             self.project_key, row_id, batch_id, context
         )
+
+    def reconcile_adjustment(self, batch_reference):
+        if not hasattr(self.audit, "get_recovery_request_by_batch_reference"):
+            raise InfrastructureError(
+                "This audit repository does not support interactive reconciliation."
+            )
+        recovery = self.audit.get_recovery_request_by_batch_reference(
+            self.project_key, batch_reference
+        )
+        if not recovery:
+            raise InfrastructureError(
+                "No incomplete adjustment request was found for this batch reference."
+            )
+        external_rows = self.output.get_rows_by_batch_reference(batch_reference)
+        expected_count = len(recovery["items"]) * 2
+        if len(external_rows) != expected_count:
+            raise InfrastructureError(
+                "Automatic reconciliation stopped: "
+                f"expected {expected_count} output rows but found {len(external_rows)}. "
+                "The batch requires manual investigation."
+            )
+        external_ids = [row["_outputRecordId"] for row in external_rows]
+        try:
+            self.audit.mark_vertica_committed(recovery["requestId"], external_ids)
+            return self.audit.finalize_request(
+                recovery["requestId"],
+                {
+                    "actionType": recovery["actionType"],
+                    "reason": recovery["reason"],
+                    "user": recovery["user"],
+                    "context": recovery["items"][0]["context"],
+                    "revertedAdjustmentBatchId": recovery[
+                        "revertedAdjustmentBatchId"
+                    ],
+                },
+                recovery["items"],
+            )
+        except Exception as exc:
+            self.audit.mark_request_failed(
+                recovery["requestId"],
+                type(exc).__name__,
+                str(exc),
+                reconciliation=True,
+            )
+            raise InfrastructureError(
+                "The output rows are intact, but audit reconciliation failed. "
+                "You can safely retry reconciliation."
+            ) from exc
 
     def commit_adjustment(self, built, reason, user, key):
         return self.commit_adjustment_batch([built], reason, user, key)
@@ -73,14 +167,21 @@ class HybridAdjustmentRepository:
             reverted,
         )
         reference = request["batchReference"]
+        external_ids = []
         try:
+            if hasattr(self.audit, "stage_request"):
+                self.audit.stage_request(request["requestId"], built_items)
+            self._inject_failure("AFTER_REQUEST_RESERVED")
             rows = []
             for built in built_items:
                 rows.extend([built["cancellation"], built["replacement"]])
             external_ids = self.output.insert_adjustment_rows(
                 first["context"], reference, rows, user
             )
+            self._inject_failure("AFTER_OUTPUT_COMMITTED")
             self.audit.mark_vertica_committed(request["requestId"], external_ids)
+            self._inject_failure("AFTER_OUTPUT_STATUS_RECORDED")
+            self._inject_failure("BEFORE_METADATA_FINALIZED")
             return self.audit.finalize_request(
                 request["requestId"],
                 {
@@ -94,6 +195,16 @@ class HybridAdjustmentRepository:
             )
         except Exception as exc:
             self.audit.mark_request_failed(
-                request["requestId"], type(exc).__name__, str(exc)
+                request["requestId"],
+                type(exc).__name__,
+                str(exc),
+                reconciliation=bool(external_ids),
             )
             raise
+
+    @staticmethod
+    def _inject_failure(point):
+        if os.getenv("SIMULATED_FAILURE_POINT") == point:
+            raise InfrastructureError(
+                f"Simulated infrastructure failure at {point}. Retry the same request after restarting without failure injection."
+            )

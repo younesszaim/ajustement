@@ -51,6 +51,9 @@ class AdjustmentAuditRepository(Protocol):
     def get_global_history(
         self, project_key: str, asofdate: str = "", asofdateflow: str = ""
     ) -> list[dict[str, Any]]: ...
+    def get_recovery_request_by_batch_reference(
+        self, project_key: str, batch_reference: str
+    ) -> dict[str, Any] | None: ...
     def record_action(
         self,
         event_type: str,

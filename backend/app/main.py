@@ -11,13 +11,26 @@ from .models import (
     LimonContext,
 )
 from .storage import build_repository
-from .services import AdjustmentService, ConflictError, DomainError
+from .services import (
+    AdjustmentService,
+    ConflictError,
+    DomainError,
+    InfrastructureError,
+)
 
 load_dotenv()
+storage_mode = os.getenv("STORAGE_MODE", "supabase").lower()
 app = FastAPI(title="LiMon Adjustment Manager API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=[
+        origin.strip()
+        for origin in os.getenv(
+            "FRONTEND_ORIGINS",
+            "http://localhost:5173,http://127.0.0.1:5173",
+        ).split(",")
+        if origin.strip()
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -32,16 +45,30 @@ def audit(event, metadata, context=None, row_id=None):
 
 
 def fail(exc):
-    raise HTTPException(409 if isinstance(exc, ConflictError) else 422, str(exc))
+    status = (
+        503
+        if isinstance(exc, InfrastructureError)
+        else 409
+        if isinstance(exc, ConflictError)
+        else 422
+    )
+    raise HTTPException(status, str(exc))
 
 
 @app.get("/api/health")
 def health():
-    return {
+    result = {
         "status": "ok",
-        "mode": os.getenv("STORAGE_MODE", "supabase"),
+        "mode": storage_mode,
         "project": os.getenv("ADJUSTMENT_PROJECT_KEY", "limon_ldp_bmf"),
     }
+    if hasattr(repo, "health"):
+        result["storage"] = repo.health()
+    if storage_mode == "hybrid_sim":
+        result["simulatedFailurePoint"] = os.getenv(
+            "SIMULATED_FAILURE_POINT"
+        ) or None
+    return result
 
 
 @app.get("/api/asofdates")
@@ -128,7 +155,7 @@ def preview(req: AdjustmentRequest):
             req.rowId,
         )
         return result
-    except DomainError as exc:
+    except (DomainError, InfrastructureError) as exc:
         fail(exc)
 
 
@@ -136,7 +163,7 @@ def preview(req: AdjustmentRequest):
 def commit(req: CommitRequest):
     try:
         return service.commit(req, os.getenv("LOCAL_USER", "developer@example"))
-    except DomainError as exc:
+    except (DomainError, InfrastructureError) as exc:
         fail(exc)
 
 
@@ -144,7 +171,7 @@ def commit(req: CommitRequest):
 def batch_commit(req: BatchCommitRequest):
     try:
         return service.commit_batch(req, os.getenv("LOCAL_USER", "developer@example"))
-    except DomainError as exc:
+    except (DomainError, InfrastructureError) as exc:
         fail(exc)
 
 
@@ -162,7 +189,7 @@ def batch_preview(req: BatchPreviewRequest):
             req.context,
         )
         return result
-    except DomainError as exc:
+    except (DomainError, InfrastructureError) as exc:
         fail(exc)
 
 
@@ -172,5 +199,17 @@ def revert_adjustment(batch_id: str, req: RevertAdjustmentRequest):
         return service.revert_adjustment(
             batch_id, req, os.getenv("LOCAL_USER", "developer@example")
         )
-    except DomainError as exc:
+    except (DomainError, InfrastructureError) as exc:
+        fail(exc)
+
+
+@app.post("/api/adjustments/{batch_reference}/reconcile")
+def reconcile_adjustment(batch_reference: str):
+    try:
+        if not hasattr(repo, "reconcile_adjustment"):
+            raise InfrastructureError(
+                "Reconciliation is available only in hybrid storage mode."
+            )
+        return repo.reconcile_adjustment(batch_reference)
+    except (DomainError, InfrastructureError) as exc:
         fail(exc)

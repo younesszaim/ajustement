@@ -8,6 +8,10 @@ from .adapters.postgres_adjustment_repository import (
 from .adapters.postgres_audit_repository import PostgresAuditRepository
 from .adapters.hybrid_adjustment_repository import HybridAdjustmentRepository
 from .adapters.vertica_repository import VerticaColumnMap, VerticaLimonRepository
+from .adapters.postgres_vertica_simulator import PostgresVerticaSimulatorRepository
+from .adapters.postgres_simulation_audit_repository import (
+    PostgresSimulationAuditRepository,
+)
 
 
 def _load_factory(path: str):
@@ -24,6 +28,16 @@ def build_repository():
     project = os.getenv("ADJUSTMENT_PROJECT_KEY", "limon_ldp_bmf")
     if mode == "supabase":
         return PostgresAdjustmentRepository(connection_from_environment, project)
+    if mode == "hybrid_sim":
+        return HybridAdjustmentRepository(
+            PostgresVerticaSimulatorRepository(
+                _postgres_factory("OUTPUT_DB_URL", "SUPABASE_DB_URL")
+            ),
+            PostgresSimulationAuditRepository(
+                _postgres_factory("METADATA_DB_URL", "SUPABASE_DB_URL")
+            ),
+            project,
+        )
     if mode == "hybrid":
         factory_path = os.getenv("LIMON_VERTICA_CONNECTION_FACTORY")
         if not factory_path:
@@ -37,3 +51,16 @@ def build_repository():
         audit = PostgresAuditRepository(connection_from_environment)
         return HybridAdjustmentRepository(output, audit, project)
     raise RuntimeError(f"Unsupported STORAGE_MODE: {mode}")
+
+
+def _postgres_factory(primary_name, fallback_name):
+    def connect():
+        import psycopg
+        from psycopg.rows import dict_row
+
+        url = os.getenv(primary_name) or os.getenv(fallback_name)
+        if not url:
+            raise RuntimeError(f"{primary_name} or {fallback_name} is required")
+        return psycopg.connect(url, connect_timeout=10, row_factory=dict_row)
+
+    return connect

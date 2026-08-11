@@ -21,6 +21,12 @@ class ConflictError(DomainError):
     pass
 
 
+class InfrastructureError(Exception):
+    """Temporary output/metadata coordination failure safe for HTTP 503."""
+
+    pass
+
+
 def row_version(row: dict[str, Any]) -> str:
     stable = {k: v for k, v in row.items() if not k.startswith("adjustment")}
     return sha256(json.dumps(stable, sort_keys=True, default=str).encode()).hexdigest()

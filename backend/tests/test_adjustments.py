@@ -36,6 +36,12 @@ def test_multiple_changes_recalculate_union(setup):
     assert len(p["impactedStages"]) == len(set(p["impactedStages"]))
 
 
+def test_amount_change_recalculates_the_populated_bucket(setup):
+    _, service, context = setup
+    preview = service.preview(context, "ROW-0001", {"amount": 1_250_000})
+    assert preview["replacement"]["eurAmount30d"] == 1_250_000
+
+
 def test_invalid_changes(setup):
     _, s, c = setup
     with pytest.raises(DomainError):

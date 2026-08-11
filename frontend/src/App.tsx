@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createColumnHelper,
@@ -76,6 +76,9 @@ const summary = [
 const col = createColumnHelper<Trade>();
 export function App() {
   const qc = useQueryClient();
+  const singleCommitKey = useRef<string | null>(null);
+  const batchCommitKey = useRef<string | null>(null);
+  const revertCommitKey = useRef<string | null>(null);
   const [date, setDate] = useState(""),
     [flow, setFlow] = useState(""),
     [tradeFilter, setTradeFilter] = useState(""),
@@ -91,6 +94,7 @@ export function App() {
     [reason, setReason] = useState(""),
     [confirm, setConfirm] = useState(false),
     [notice, setNotice] = useState(""),
+    [noticeError, setNoticeError] = useState(false),
     [step, setStep] = useState(0),
     [showGlobal, setShowGlobal] = useState(false),
     [globalDate, setGlobalDate] = useState(""),
@@ -162,6 +166,7 @@ export function App() {
     setChanges({});
     setPreview(null);
     setTab("current");
+    singleCommitKey.current = null;
   }, [selected]);
   const impact = useQuery({
     queryKey: ["impact", ctx, selected, changes],
@@ -184,7 +189,10 @@ export function App() {
       setPreview(p);
       setStep(4);
     },
-    onError: (e) => setNotice((e as Error).message),
+    onError: (e) => {
+      setNoticeError(true);
+      setNotice((e as Error).message);
+    },
   });
   useEffect(() => {
     if (!previewMut.isPending) return;
@@ -199,10 +207,12 @@ export function App() {
         changes,
         reason,
         preview!.rowVersion,
-        crypto.randomUUID(),
+        (singleCommitKey.current ??= crypto.randomUUID()),
       ),
     onSuccess: (r) => {
+      singleCommitKey.current = null;
       setConfirm(false);
+      setNoticeError(false);
       setNotice(`Adjustment ${r.adjustmentBatchId} committed.`);
       setChanges({});
       setPreview(null);
@@ -212,6 +222,7 @@ export function App() {
     },
     onError: (e) => {
       setConfirm(false);
+      setNoticeError(true);
       setNotice((e as Error).message);
     },
   });
@@ -225,9 +236,11 @@ export function App() {
           expectedVersion: x.preview.rowVersion,
         })),
         batchReason,
-        crypto.randomUUID(),
+        (batchCommitKey.current ??= crypto.randomUUID()),
       ),
     onSuccess: (r) => {
+      batchCommitKey.current = null;
+      setNoticeError(false);
       setNotice(
         `Batch ${r.adjustmentBatchId} committed · ${r.adjustedTrades} trades · ${r.insertedRecords} rows.`,
       );
@@ -237,7 +250,10 @@ export function App() {
       setPreview(null);
       qc.invalidateQueries();
     },
-    onError: (e) => setNotice((e as Error).message),
+    onError: (e) => {
+      setNoticeError(true);
+      setNotice((e as Error).message);
+    },
   });
   const batchPreviewMut = useMutation({
     mutationFn: () =>
@@ -252,7 +268,10 @@ export function App() {
       setBatchPreview(r);
       setShowBatchPreview(true);
     },
-    onError: (e) => setNotice((e as Error).message),
+    onError: (e) => {
+      setNoticeError(true);
+      setNotice((e as Error).message);
+    },
   });
   const revertMut = useMutation({
     mutationFn: () =>
@@ -264,9 +283,11 @@ export function App() {
         },
         revertTarget!.original.rowId,
         revertReason,
-        crypto.randomUUID(),
+        (revertCommitKey.current ??= crypto.randomUUID()),
       ),
     onSuccess: (r) => {
+      revertCommitKey.current = null;
+      setNoticeError(false);
       setNotice(
         `Adjustment reverted through audit batch ${r.adjustmentBatchId}.`,
       );
@@ -274,7 +295,25 @@ export function App() {
       setRevertReason("");
       qc.invalidateQueries();
     },
-    onError: (e) => setNotice((e as Error).message),
+    onError: (e) => {
+      setNoticeError(true);
+      setNotice((e as Error).message);
+    },
+  });
+  const reconcileMut = useMutation({
+    mutationFn: (item: HistoryItem) =>
+      api.reconcileAdjustment(item.adjustmentBatchId),
+    onSuccess: (r) => {
+      setNoticeError(false);
+      setNotice(
+        `Adjustment reconciliation completed as batch ${r.adjustmentBatchId}.`,
+      );
+      qc.invalidateQueries();
+    },
+    onError: (e) => {
+      setNoticeError(true);
+      setNotice((e as Error).message);
+    },
   });
   const columns = useMemo(
     () => [
@@ -322,6 +361,8 @@ export function App() {
     getCoreRowModel: getCoreRowModel(),
   });
   const clearContext = () => {
+    singleCommitKey.current = null;
+    batchCommitKey.current = null;
     setSubmitted(null);
     setSelected("");
     setBatch([]);
@@ -340,6 +381,7 @@ export function App() {
     setSelected("");
   };
   const change = (field: string, value: unknown) => {
+    singleCommitKey.current = null;
     const original = detail.data?.[field];
     let v: unknown = value;
     if (typeof original === "number") v = value === "" ? "" : Number(value);
@@ -352,6 +394,7 @@ export function App() {
   };
   const addToBatch = () => {
     if (!preview) return;
+    batchCommitKey.current = null;
     setBatch((items) => [
       ...items.filter(
         (x) => x.preview.original.rowId !== preview.original.rowId,
@@ -360,6 +403,7 @@ export function App() {
     ]);
     setBatchPreview(null);
     setShowBatchPreview(false);
+    setNoticeError(false);
     setNotice(`${preview.original.tradeNo} added to the adjustment batch.`);
     setSelected("");
     setSubmitted(null);
@@ -418,7 +462,6 @@ export function App() {
                 : "Select a LiMon snapshot, find one trade, and create an audited adjustment."}
             </p>
           </div>
-          <span className="role">ADJUSTER</span>
         </div>
         {!showGlobal && (
           <section className="context">
@@ -474,10 +517,22 @@ export function App() {
           </section>
         )}
         {notice && (
-          <div className="notice">
-            <ShieldCheck />
+          <div
+            className={`notice ${noticeError ? "notice-error" : ""}`}
+            role={noticeError ? "alert" : "status"}
+            aria-live={noticeError ? "assertive" : "polite"}
+          >
+            {noticeError ? <AlertCircle /> : <ShieldCheck />}
             <span>{notice}</span>
-            <button onClick={() => setNotice("")}>×</button>
+            <button
+              aria-label="Dismiss notification"
+              onClick={() => {
+                setNotice("");
+                setNoticeError(false);
+              }}
+            >
+              ×
+            </button>
           </div>
         )}
         {!showGlobal && batch.length > 0 && (
@@ -539,6 +594,7 @@ export function App() {
                               x.preview.original.rowId,
                           ),
                         );
+                        batchCommitKey.current = null;
                         setBatchPreview(null);
                       }}
                     >
@@ -553,7 +609,10 @@ export function App() {
                 <span>Reason for this batch *</span>
                 <textarea
                   value={batchReason}
-                  onChange={(e) => setBatchReason(e.target.value)}
+                  onChange={(e) => {
+                    batchCommitKey.current = null;
+                    setBatchReason(e.target.value);
+                  }}
                   placeholder="Reason applied to all adjustments in this batch…"
                 />
               </label>
@@ -647,9 +706,17 @@ export function App() {
               <span>
                 <strong>
                   {globalHistory.data?.filter((x) => x.actionType !== "REVERT")
-                    .length ?? 0}
+                    .filter((x) => x.status === "COMMITTED").length ?? 0}
                 </strong>{" "}
                 committed adjustments
+              </span>
+              <span>
+                <strong>
+                  {globalHistory.data?.filter(
+                    (x) => x.status === "RECONCILIATION_REQUIRED",
+                  ).length ?? 0}
+                </strong>{" "}
+                awaiting reconciliation
               </span>
               <span>
                 <strong>
@@ -677,7 +744,16 @@ export function App() {
               ) : globalHistory.data?.length ? (
                 <RegisterEntries
                   items={globalHistory.data}
-                  onRevert={setRevertTarget}
+                  onRevert={(target) => {
+                    revertCommitKey.current = null;
+                    setRevertTarget(target);
+                  }}
+                  onReconcile={(target) => reconcileMut.mutate(target)}
+                  reconcilingReference={
+                    reconcileMut.isPending
+                      ? reconcileMut.variables?.adjustmentBatchId
+                      : undefined
+                  }
                 />
               ) : (
                 <div className="blank">
@@ -1026,7 +1102,10 @@ export function App() {
                 <PreviewView
                   preview={preview}
                   reason={reason}
-                  setReason={setReason}
+                  setReason={(value) => {
+                    singleCommitKey.current = null;
+                    setReason(value);
+                  }}
                   apply={() => setConfirm(true)}
                   addToBatch={addToBatch}
                   inBatch={batch.some(
@@ -1053,9 +1132,17 @@ export function App() {
                     <span>
                       <strong>
                         {history.data?.filter((x) => x.actionType !== "REVERT")
-                          .length ?? 0}
+                          .filter((x) => x.status === "COMMITTED").length ?? 0}
                       </strong>{" "}
                       committed
+                    </span>
+                    <span>
+                      <strong>
+                        {history.data?.filter(
+                          (x) => x.status === "RECONCILIATION_REQUIRED",
+                        ).length ?? 0}
+                      </strong>{" "}
+                      awaiting reconciliation
                     </span>
                     <span>
                       <strong>
@@ -1074,7 +1161,16 @@ export function App() {
                 ) : history.data?.length ? (
                   <RegisterEntries
                     items={history.data}
-                    onRevert={setRevertTarget}
+                    onRevert={(target) => {
+                      revertCommitKey.current = null;
+                      setRevertTarget(target);
+                    }}
+                    onReconcile={(target) => reconcileMut.mutate(target)}
+                    reconcilingReference={
+                      reconcileMut.isPending
+                        ? reconcileMut.variables?.adjustmentBatchId
+                        : undefined
+                    }
                     showTrade={false}
                   />
                 ) : (
@@ -1147,7 +1243,10 @@ export function App() {
               <span>Reason for reverting *</span>
               <textarea
                 value={revertReason}
-                onChange={(e) => setRevertReason(e.target.value)}
+                onChange={(e) => {
+                  revertCommitKey.current = null;
+                  setRevertReason(e.target.value);
+                }}
                 placeholder="Explain why this committed adjustment must be reverted…"
               />
             </label>
@@ -1159,6 +1258,7 @@ export function App() {
                 onClick={() => {
                   setRevertTarget(null);
                   setRevertReason("");
+                  revertCommitKey.current = null;
                 }}
               >
                 Cancel
@@ -1307,10 +1407,14 @@ function RowCard({
 function RegisterEntries({
   items,
   onRevert,
+  onReconcile,
+  reconcilingReference,
   showTrade = true,
 }: {
   items: HistoryItem[];
   onRevert: (item: HistoryItem) => void;
+  onReconcile: (item: HistoryItem) => void;
+  reconcilingReference?: string;
   showTrade?: boolean;
 }) {
   const reverts = new Map(
@@ -1336,7 +1440,17 @@ function RegisterEntries({
             <HistoryEntry
               item={display}
               showTrade={showTrade}
-              onRevert={revert ? undefined : onRevert}
+              onRevert={
+                revert || commit.status !== "COMMITTED" ? undefined : onRevert
+              }
+              onReconcile={
+                commit.status === "RECONCILIATION_REQUIRED"
+                  ? onReconcile
+                  : undefined
+              }
+              reconciling={
+                reconcilingReference === commit.adjustmentBatchId
+              }
             />
             {revert && (
               <div className="linked-revert">
@@ -1382,10 +1496,14 @@ function HistoryEntry({
   item: h,
   showTrade = false,
   onRevert,
+  onReconcile,
+  reconciling = false,
 }: {
   item: HistoryItem;
   showTrade?: boolean;
   onRevert?: (item: HistoryItem) => void;
+  onReconcile?: (item: HistoryItem) => void;
+  reconciling?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -1460,9 +1578,26 @@ function HistoryEntry({
                 : "View original, reversal and adjusted rows"}
               <ArrowRight />
             </button>
-            {onRevert && h.actionType !== "REVERT" && (
+            {onRevert && h.actionType !== "REVERT" && h.status === "COMMITTED" && (
               <button className="revert-button" onClick={() => onRevert(h)}>
                 Revert adjustment
+              </button>
+            )}
+            {onReconcile && h.status === "RECONCILIATION_REQUIRED" && (
+              <button
+                className="reconcile-button"
+                disabled={reconciling}
+                onClick={() => onReconcile(h)}
+              >
+                {reconciling ? (
+                  <>
+                    <Loader2 className="spin" /> Reconciling…
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw /> Retry reconciliation
+                  </>
+                )}
               </button>
             )}
           </div>

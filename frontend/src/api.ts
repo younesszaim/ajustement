@@ -38,6 +38,13 @@ export const api = {
     json<HistoryItem[]>(
       `/api/adjustments/history?asofdate=${encodeURIComponent(asofdate)}&asofdateflow=${encodeURIComponent(asofdateflow)}`,
     ),
+  reconcileAdjustment: (batchReference: string) =>
+    post<{
+      adjustmentBatchId: string;
+      status: string;
+      insertedRecords: number;
+      adjustedTrades: number;
+    }>(`/api/adjustments/${encodeURIComponent(batchReference)}/reconcile`, {}),
   impact: (c: Context, id: string, changes: Record<string, unknown>) =>
     post<{ impactedStages: string[] }>("/api/adjustments/impact", {
       context: c,

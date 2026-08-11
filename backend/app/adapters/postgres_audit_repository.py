@@ -56,11 +56,18 @@ class PostgresAuditRepository:
                 (external_ids, request_id),
             )
 
-    def mark_request_failed(self, request_id, error_code, error_message):
+    def mark_request_failed(
+        self, request_id, error_code, error_message, reconciliation=False
+    ):
         with self.connection_factory() as c:
             c.execute(
-                "UPDATE public.adjustment_requests SET status='FAILED',error_code=%s,error_message=%s,updated_at=now() WHERE request_id=%s",
-                (error_code, error_message[:2000], request_id),
+                "UPDATE public.adjustment_requests SET status=%s,error_code=%s,error_message=%s,updated_at=now() WHERE request_id=%s",
+                (
+                    "RECONCILIATION_REQUIRED" if reconciliation else "FAILED",
+                    error_code,
+                    error_message[:2000],
+                    request_id,
+                ),
             )
 
     def get_idempotent_result(self, project_key, key):
