@@ -116,3 +116,17 @@ export interface ProxyFields {
   portfolio: string;
   counterparty: string;
 }
+
+export type Role = "reader" | "functional_admin" | "technical_admin";
+export interface AuthUser {
+  userId: string;
+  email: string;
+  displayName: string;
+  roles: Role[];
+  permissions: string[];
+  authenticated: boolean;
+  hasAccess: boolean;
+}
+export interface MockAuthUser extends AuthUser {
+  username: string;
+}

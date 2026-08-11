@@ -46,6 +46,11 @@ npm run dev
 
 Open `http://localhost:5173`. The API is at `http://localhost:8000/docs`.
 
+Local development uses mock SSO by default. Choose one of four identities on
+the login page: reader, functional administrator, technical administrator, or
+an authenticated user without application access. Sessions are signed and
+stored in an HTTP-only cookie.
+
 ## Test and build
 
 ```bash
@@ -71,10 +76,36 @@ The mock repository mirrors atomicity, idempotency, effective-state lookup, and 
 - Editable inputs: `backend/app/config.py` → `EDITABLE_FIELDS`
 - Additive measures: `backend/app/config.py` → `ADDITIVE_MEASURES`
 - Dependency graph: `FIELD_DEPENDENCIES` and `STAGE_DEPENDENCIES`
-- Local identity: `LOCAL_USER` (defaults to `developer@example`)
+- Authentication: `AUTH_MODE=mock` enables development identities. Set a long
+  random `AUTH_SESSION_SECRET`; it is a backend-only secret.
 - Runtime storage: `SUPABASE_DB_URL` must be set as a backend secret. FastAPI has no mock-storage runtime switch.
 - Vertica: provide `VERTICA_HOST`, `VERTICA_PORT`, `VERTICA_DATABASE`, `VERTICA_USER`, `VERTICA_PASSWORD`, and `VERTICA_SCHEMA` through the deployment secret manager; no credentials are stored here.
 - Supabase/PostgreSQL storage: set `SUPABASE_DB_URL` only in the backend secret manager and set `ADJUSTMENT_PROJECT_KEY=limon_ldp_bmf`. Never expose this URL through a `VITE_` variable.
+
+## Mock SSO and role-based access
+
+The backend is authoritative for authorization. The React UI hides unavailable
+actions, but every API endpoint independently checks the authenticated role.
+
+| Capability | reader | functional_admin | technical_admin |
+|---|:---:|:---:|:---:|
+| Search, lineage, history | yes | yes | yes |
+| Run previews | yes | yes | yes |
+| Commit, cancel, proxy, batch, revert | no | yes | no |
+| Health and retry reconciliation | no | no | yes |
+
+Mock endpoints are available only with `AUTH_MODE=mock`:
+
+- `GET /api/auth/mock-users`
+- `POST /api/auth/mock-login`
+- `GET /api/auth/me`
+- `POST /api/auth/logout`
+
+The stable identity returned to the application contains `userId`, `email`,
+`displayName`, `roles`, and derived permissions. Audit writes use this identity
+instead of a local username. The production CACIB SSO adapter must return the
+same identity shape and map enterprise groups to the internal roles. Mock login
+must be disabled in production.
 
 ## Supabase adjustment storage
 

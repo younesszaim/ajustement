@@ -28,6 +28,7 @@ import type {
   Preview,
   ProxyFields,
   Trade,
+  AuthUser,
 } from "./types";
 const money = new Intl.NumberFormat("en-GB", {
   minimumFractionDigits: 2,
@@ -75,8 +76,16 @@ const summary = [
   "lcrOutflow",
 ];
 const col = createColumnHelper<Trade>();
-export function App() {
+export function App({
+  user,
+  onLogout,
+}: {
+  user: AuthUser;
+  onLogout: () => void;
+}) {
   const qc = useQueryClient();
+  const canBusinessWrite = user.permissions.includes("business_write");
+  const canTechnicalAdmin = user.permissions.includes("technical_admin");
   const singleCommitKey = useRef<string | null>(null);
   const batchCommitKey = useRef<string | null>(null);
   const revertCommitKey = useRef<string | null>(null);
@@ -503,7 +512,9 @@ export function App() {
         </div>
         <div className="header-meta">
           <span className="env">DEV</span>
-          <span>developer@example</span>
+          <span className="role">{user.roles.join(", ")}</span>
+          <span>{user.displayName}</span>
+          <button className="outline" onClick={onLogout}>Sign out</button>
         </div>
       </header>
       <main>
@@ -545,7 +556,8 @@ export function App() {
                 setShowProxy(true);
               }}
             >
-              Add proxy trade <ArrowRight />
+              {canBusinessWrite ? "Add proxy trade" : "Preview proxy trade"}{" "}
+              <ArrowRight />
             </button>
           )}
         </div>
@@ -830,11 +842,19 @@ export function App() {
               ) : globalHistory.data?.length ? (
                 <RegisterEntries
                   items={globalHistory.data}
-                  onRevert={(target) => {
-                    revertCommitKey.current = null;
-                    setRevertTarget(target);
-                  }}
-                  onReconcile={(target) => reconcileMut.mutate(target)}
+                  onRevert={
+                    canBusinessWrite
+                      ? (target) => {
+                          revertCommitKey.current = null;
+                          setRevertTarget(target);
+                        }
+                      : undefined
+                  }
+                  onReconcile={
+                    canTechnicalAdmin
+                      ? (target) => reconcileMut.mutate(target)
+                      : undefined
+                  }
                   reconcilingReference={
                     reconcileMut.isPending
                       ? reconcileMut.variables?.adjustmentBatchId
@@ -1028,13 +1048,16 @@ export function App() {
                           onClick={() => cancelPreviewMut.mutate()}
                         >
                           {cancelPreviewMut.isPending && <Loader2 className="spin" />}
-                          Cancel trade effect
+                          {canBusinessWrite
+                            ? "Cancel trade effect"
+                            : "Preview cancellation"}
                         </button>
                         <button
                           className="primary"
                           onClick={() => setTab("adjustment")}
                         >
-                          Modify trade <ArrowRight />
+                          {canBusinessWrite ? "Modify trade" : "Preview modification"}{" "}
+                          <ArrowRight />
                         </button>
                       </>
                     )}
@@ -1212,6 +1235,7 @@ export function App() {
                     )
                   }
                   pending={commit.isPending}
+                  canCommit={canBusinessWrite}
                 />
               ) : (
                 <div className="blank">
@@ -1261,11 +1285,19 @@ export function App() {
                 ) : history.data?.length ? (
                   <RegisterEntries
                     items={history.data}
-                    onRevert={(target) => {
-                      revertCommitKey.current = null;
-                      setRevertTarget(target);
-                    }}
-                    onReconcile={(target) => reconcileMut.mutate(target)}
+                    onRevert={
+                      canBusinessWrite
+                        ? (target) => {
+                            revertCommitKey.current = null;
+                            setRevertTarget(target);
+                          }
+                        : undefined
+                    }
+                    onReconcile={
+                      canTechnicalAdmin
+                        ? (target) => reconcileMut.mutate(target)
+                        : undefined
+                    }
                     reconcilingReference={
                       reconcileMut.isPending
                         ? reconcileMut.variables?.adjustmentBatchId
@@ -1336,6 +1368,7 @@ export function App() {
           }}
           previewPending={proxyPreviewMut.isPending}
           commitPending={proxyCommitMut.isPending}
+          canCommit={canBusinessWrite}
           runPreview={() => proxyPreviewMut.mutate()}
           commit={() => proxyCommitMut.mutate()}
           close={() => {
@@ -1416,6 +1449,7 @@ function ProxyDialog({
   setReason,
   previewPending,
   commitPending,
+  canCommit,
   runPreview,
   commit,
   close,
@@ -1428,6 +1462,7 @@ function ProxyDialog({
   setReason: (value: string) => void;
   previewPending: boolean;
   commitPending: boolean;
+  canCommit: boolean;
   runPreview: () => void;
   commit: () => void;
   close: () => void;
@@ -1525,23 +1560,27 @@ function ProxyDialog({
             {preview.replacement && (
               <RowCard title="Proxy output row" row={preview.replacement} tone="adjusted" />
             )}
-            <label>
-              <span>Reason *</span>
-              <textarea
-                value={reason}
-                onChange={(event) => setReason(event.target.value)}
-                placeholder="Explain why this proxy is required…"
-              />
-            </label>
+            {canCommit && (
+              <label>
+                <span>Reason *</span>
+                <textarea
+                  value={reason}
+                  onChange={(event) => setReason(event.target.value)}
+                  placeholder="Explain why this proxy is required…"
+                />
+              </label>
+            )}
             <div className="proxy-actions">
               <button onClick={() => setFields({ ...fields })}>Modify</button>
-              <button
-                className="primary"
-                disabled={reason.trim().length < 5 || commitPending}
-                onClick={commit}
-              >
-                {commitPending && <Loader2 className="spin" />} Commit proxy
-              </button>
+              {canCommit && (
+                <button
+                  className="primary"
+                  disabled={reason.trim().length < 5 || commitPending}
+                  onClick={commit}
+                >
+                  {commitPending && <Loader2 className="spin" />} Commit proxy
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -1686,8 +1725,8 @@ function RegisterEntries({
   showTrade = true,
 }: {
   items: HistoryItem[];
-  onRevert: (item: HistoryItem) => void;
-  onReconcile: (item: HistoryItem) => void;
+  onRevert?: (item: HistoryItem) => void;
+  onReconcile?: (item: HistoryItem) => void;
   reconcilingReference?: string;
   showTrade?: boolean;
 }) {
@@ -1719,10 +1758,12 @@ function RegisterEntries({
               item={display}
               showTrade={showTrade}
               onRevert={
-                revert || commit.status !== "COMMITTED" ? undefined : onRevert
+                revert || commit.status !== "COMMITTED" || !onRevert
+                  ? undefined
+                  : onRevert
               }
               onReconcile={
-                commit.status === "RECONCILIATION_REQUIRED"
+                commit.status === "RECONCILIATION_REQUIRED" && onReconcile
                   ? onReconcile
                   : undefined
               }
@@ -2029,6 +2070,7 @@ function PreviewView({
   addToBatch,
   inBatch,
   pending,
+  canCommit,
 }: {
   preview: Preview;
   reason: string;
@@ -2037,6 +2079,7 @@ function PreviewView({
   addToBatch: () => void;
   inBatch: boolean;
   pending: boolean;
+  canCommit: boolean;
 }) {
   return (
     <div className="preview">
@@ -2078,38 +2121,42 @@ function PreviewView({
           </div>
         ))}
       </section>
-      <section className="reason">
-        <label>Reason for single adjustment *</label>
-        <textarea
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          placeholder="Required only when applying this trade immediately…"
-        />
-        <small>
-          For a multi-trade batch, the shared reason is entered in the batch
-          panel.
-        </small>
-      </section>
+      {canCommit && (
+        <section className="reason">
+          <label>Reason for single adjustment *</label>
+          <textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Required only when applying this trade immediately…"
+          />
+          <small>
+            For a multi-trade batch, the shared reason is entered in the batch
+            panel.
+          </small>
+        </section>
+      )}
       <div className="apply-row">
         <span>
           <ShieldCheck />
           Original row remains immutable
         </span>
         <div className="preview-actions">
-          {preview.operationType !== "TRADE_CANCELLATION" && (
+          {canCommit && preview.operationType !== "TRADE_CANCELLATION" && (
             <button className="outline" onClick={addToBatch}>
               {inBatch ? "Update batch" : "Add to batch"}
             </button>
           )}
-          <button
-            className="primary"
-            onClick={apply}
-            disabled={reason.trim().length < 5 || pending}
-          >
-            {preview.operationType === "TRADE_CANCELLATION"
-              ? "Cancel trade effect"
-              : "Apply this adjustment"}
-          </button>
+          {canCommit && (
+            <button
+              className="primary"
+              onClick={apply}
+              disabled={reason.trim().length < 5 || pending}
+            >
+              {preview.operationType === "TRADE_CANCELLATION"
+                ? "Cancel trade effect"
+                : "Apply this adjustment"}
+            </button>
+          )}
         </div>
       </div>
     </div>

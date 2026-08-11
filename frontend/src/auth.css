@@ -1,0 +1,59 @@
+.auth-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: #f4f7f5;
+  padding: 24px;
+}
+.auth-panel {
+  width: min(460px, 100%);
+  border: 1px solid #d7e1dc;
+  border-radius: 12px;
+  background: #fff;
+  padding: 32px;
+  box-shadow: 0 16px 45px rgb(0 65 43 / 10%);
+}
+.auth-panel > svg {
+  width: 30px;
+  height: 30px;
+  color: #007a4d;
+}
+.auth-panel h1 {
+  margin: 8px 0;
+}
+.auth-panel p {
+  color: #52525b;
+}
+.auth-eyebrow {
+  display: block;
+  margin-top: 20px;
+  color: #007a4d;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+.mock-identities {
+  display: grid;
+  gap: 10px;
+  margin-top: 24px;
+}
+.mock-identities button {
+  display: grid;
+  gap: 3px;
+  text-align: left;
+  border: 1px solid #d4d4d8;
+  border-radius: 7px;
+  background: #fff;
+  padding: 12px 14px;
+}
+.mock-identities button:hover {
+  border-color: #007a4d;
+  background: #f4faf7;
+}
+.mock-identities span {
+  color: #71717a;
+  font-size: 11px;
+}
+.auth-error {
+  color: #b42318 !important;
+}

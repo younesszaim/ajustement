@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from .models import (
     AdjustmentRequest,
@@ -21,6 +21,19 @@ from .services import (
     DomainError,
     InfrastructureError,
 )
+from .auth import (
+    BUSINESS_WRITE,
+    MOCK_USERS,
+    PREVIEW,
+    READ,
+    TECHNICAL_ADMIN,
+    MockLoginRequest,
+    auth_mode,
+    clear_session,
+    create_mock_session,
+    current_identity,
+    require,
+)
 
 load_dotenv()
 storage_mode = os.getenv("STORAGE_MODE", "supabase").lower()
@@ -37,14 +50,15 @@ app.add_middleware(
     ],
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
 repo = build_repository()
 service = AdjustmentService(repo)
 
 
-def audit(event, metadata, context=None, row_id=None):
+def audit(event, metadata, identity, context=None, row_id=None):
     repo.record_action(
-        event, os.getenv("LOCAL_USER", "developer@example"), metadata, context, row_id
+        event, identity.email, metadata, context, row_id
     )
 
 
@@ -59,8 +73,33 @@ def fail(exc):
     raise HTTPException(status, str(exc))
 
 
+@app.get("/api/auth/mock-users")
+def mock_users():
+    if auth_mode() != "mock":
+        raise HTTPException(404, "Mock login is disabled.")
+    return [
+        {"username": username, **identity.public()}
+        for username, identity in MOCK_USERS.items()
+    ]
+
+
+@app.post("/api/auth/mock-login")
+def mock_login(req: MockLoginRequest, response: Response):
+    return create_mock_session(response, req.username).public()
+
+
+@app.get("/api/auth/me")
+def authenticated_user(request: Request):
+    return current_identity(request).public()
+
+
+@app.post("/api/auth/logout", status_code=204)
+def logout(response: Response):
+    clear_session(response)
+
+
 @app.get("/api/health")
-def health():
+def health(identity=Depends(require(TECHNICAL_ADMIN))):
     result = {
         "status": "ok",
         "mode": storage_mode,
@@ -76,14 +115,14 @@ def health():
 
 
 @app.get("/api/asofdates")
-def dates():
+def dates(identity=Depends(require(READ))):
     return repo.asofdates()
 
 
 @app.get("/api/versions")
-def versions(asofdate: str):
+def versions(asofdate: str, identity=Depends(require(READ))):
     result = repo.versions(asofdate)
-    audit("DATE_SELECTED", {"asofdate": asofdate, "availableVersions": len(result)})
+    audit("DATE_SELECTED", {"asofdate": asofdate, "availableVersions": len(result)}, identity)
     return result
 
 
@@ -95,6 +134,7 @@ def trades(
     foSystem: str = "",
     page: int = Query(1, ge=1),
     pageSize: int = Query(10, ge=1, le=100),
+    identity=Depends(require(READ)),
 ):
     try:
         context = LimonContext(asofdate=asofdate, asofdateflow=asofdateflow)
@@ -102,6 +142,7 @@ def trades(
         audit(
             "TRADE_SEARCHED",
             {"search": search, "foSystem": foSystem, "page": page, "resultRows": total},
+            identity,
             context,
         )
         return {"items": items, "total": total}
@@ -110,23 +151,33 @@ def trades(
 
 
 @app.get("/api/trades/{row_id}")
-def detail(row_id: str, asofdate: str, asofdateflow: str):
+def detail(
+    row_id: str,
+    asofdate: str,
+    asofdateflow: str,
+    identity=Depends(require(READ)),
+):
     try:
         context = LimonContext(asofdate=asofdate, asofdateflow=asofdateflow)
         result = repo.get_effective_trade(context, row_id)
-        audit("TRADE_VIEWED", {}, context, row_id)
+        audit("TRADE_VIEWED", {}, identity, context, row_id)
         return result
     except (DomainError, ValueError) as exc:
         fail(exc)
 
 
 @app.get("/api/trades/{row_id}/history")
-def history(row_id: str):
+def history(row_id: str, identity=Depends(require(READ))):
     return repo.get_history(row_id)
 
 
 @app.get("/api/trades/{row_id}/lineage")
-def lineage(row_id: str, asofdate: str, asofdateflow: str):
+def lineage(
+    row_id: str,
+    asofdate: str,
+    asofdateflow: str,
+    identity=Depends(require(READ)),
+):
     try:
         return repo.get_lineage(
             LimonContext(asofdate=asofdate, asofdateflow=asofdateflow), row_id
@@ -136,17 +187,21 @@ def lineage(row_id: str, asofdate: str, asofdateflow: str):
 
 
 @app.get("/api/adjustments/history")
-def global_history(asofdate: str = "", asofdateflow: str = ""):
+def global_history(
+    asofdate: str = "",
+    asofdateflow: str = "",
+    identity=Depends(require(READ)),
+):
     return repo.get_global_history(asofdate, asofdateflow)
 
 
 @app.post("/api/adjustments/impact")
-def impact(req: AdjustmentRequest):
+def impact(req: AdjustmentRequest, identity=Depends(require(PREVIEW))):
     return {"impactedStages": service.resolver.resolve(set(req.changes))}
 
 
 @app.post("/api/adjustments/preview")
-def preview(req: AdjustmentRequest):
+def preview(req: AdjustmentRequest, identity=Depends(require(PREVIEW))):
     try:
         result = service.preview(req.context, req.rowId, req.changes)
         audit(
@@ -155,6 +210,7 @@ def preview(req: AdjustmentRequest):
                 "changedFields": list(req.changes),
                 "impactedStages": result["impactedStages"],
             },
+            identity,
             req.context,
             req.rowId,
         )
@@ -164,7 +220,7 @@ def preview(req: AdjustmentRequest):
 
 
 @app.post("/api/adjustments/cancel/preview")
-def cancel_preview(req: CancelTradeRequest):
+def cancel_preview(req: CancelTradeRequest, identity=Depends(require(PREVIEW))):
     try:
         return service.preview_cancellation(req.context, req.rowId)
     except (DomainError, InfrastructureError) as exc:
@@ -172,17 +228,18 @@ def cancel_preview(req: CancelTradeRequest):
 
 
 @app.post("/api/adjustments/cancel/commit")
-def cancel_commit(req: CancelTradeCommitRequest):
+def cancel_commit(
+    req: CancelTradeCommitRequest,
+    identity=Depends(require(BUSINESS_WRITE)),
+):
     try:
-        return service.commit_cancellation(
-            req, os.getenv("LOCAL_USER", "developer@example")
-        )
+        return service.commit_cancellation(req, identity.email)
     except (DomainError, InfrastructureError) as exc:
         fail(exc)
 
 
 @app.post("/api/adjustments/proxy/preview")
-def proxy_preview(req: ProxyPreviewRequest):
+def proxy_preview(req: ProxyPreviewRequest, identity=Depends(require(PREVIEW))):
     try:
         return service.preview_proxy(req.context, req.draftId, req.fields)
     except (DomainError, InfrastructureError) as exc:
@@ -190,33 +247,37 @@ def proxy_preview(req: ProxyPreviewRequest):
 
 
 @app.post("/api/adjustments/proxy/commit")
-def proxy_commit(req: ProxyCommitRequest):
+def proxy_commit(
+    req: ProxyCommitRequest,
+    identity=Depends(require(BUSINESS_WRITE)),
+):
     try:
-        return service.commit_proxy(
-            req, os.getenv("LOCAL_USER", "developer@example")
-        )
+        return service.commit_proxy(req, identity.email)
     except (DomainError, InfrastructureError) as exc:
         fail(exc)
 
 
 @app.post("/api/adjustments/commit")
-def commit(req: CommitRequest):
+def commit(req: CommitRequest, identity=Depends(require(BUSINESS_WRITE))):
     try:
-        return service.commit(req, os.getenv("LOCAL_USER", "developer@example"))
+        return service.commit(req, identity.email)
     except (DomainError, InfrastructureError) as exc:
         fail(exc)
 
 
 @app.post("/api/adjustments/batch/commit")
-def batch_commit(req: BatchCommitRequest):
+def batch_commit(
+    req: BatchCommitRequest,
+    identity=Depends(require(BUSINESS_WRITE)),
+):
     try:
-        return service.commit_batch(req, os.getenv("LOCAL_USER", "developer@example"))
+        return service.commit_batch(req, identity.email)
     except (DomainError, InfrastructureError) as exc:
         fail(exc)
 
 
 @app.post("/api/adjustments/batch/preview")
-def batch_preview(req: BatchPreviewRequest):
+def batch_preview(req: BatchPreviewRequest, identity=Depends(require(PREVIEW))):
     try:
         result = service.preview_batch(req.context, req.items)
         audit(
@@ -226,6 +287,7 @@ def batch_preview(req: BatchPreviewRequest):
                 "tradeCount": result["tradeCount"],
                 "impactedStages": result["impactedStages"],
             },
+            identity,
             req.context,
         )
         return result
@@ -234,17 +296,22 @@ def batch_preview(req: BatchPreviewRequest):
 
 
 @app.post("/api/adjustments/{batch_id}/revert")
-def revert_adjustment(batch_id: str, req: RevertAdjustmentRequest):
+def revert_adjustment(
+    batch_id: str,
+    req: RevertAdjustmentRequest,
+    identity=Depends(require(BUSINESS_WRITE)),
+):
     try:
-        return service.revert_adjustment(
-            batch_id, req, os.getenv("LOCAL_USER", "developer@example")
-        )
+        return service.revert_adjustment(batch_id, req, identity.email)
     except (DomainError, InfrastructureError) as exc:
         fail(exc)
 
 
 @app.post("/api/adjustments/{batch_reference}/reconcile")
-def reconcile_adjustment(batch_reference: str):
+def reconcile_adjustment(
+    batch_reference: str,
+    identity=Depends(require(TECHNICAL_ADMIN)),
+):
     try:
         if not hasattr(repo, "reconcile_adjustment"):
             raise InfrastructureError(
