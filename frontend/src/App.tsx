@@ -11,14 +11,17 @@ import {
   ArrowRight,
   CalendarDays,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock3,
   History,
   Loader2,
+  LogOut,
   RotateCcw,
   Search,
   ShieldCheck,
+  UserRound,
 } from "lucide-react";
 import { api } from "./api";
 import type {
@@ -512,9 +515,7 @@ export function App({
         </div>
         <div className="header-meta">
           <span className="env">DEV</span>
-          <span className="role">{user.roles.join(", ")}</span>
-          <span>{user.displayName}</span>
-          <button className="outline" onClick={onLogout}>Sign out</button>
+          <UserMenu user={user} onLogout={onLogout} />
         </div>
       </header>
       <main>
@@ -1438,6 +1439,89 @@ export function App({
         </div>
       )}
     </>
+  );
+}
+function UserMenu({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const initials = user.displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+  const permissionLabels: Record<string, string> = {
+    read: "Read trades and history",
+    preview: "Run adjustment previews",
+    business_write: "Commit and revert adjustments",
+    technical_admin: "Technical health and reconciliation",
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutside = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  return (
+    <div className="user-menu" ref={menuRef}>
+      <button
+        className="user-trigger"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span className="user-avatar">{initials || <UserRound />}</span>
+        <span className="user-trigger-copy">
+          <strong>{user.displayName}</strong>
+          <small>{user.roles.join(", ").replaceAll("_", " ")}</small>
+        </span>
+        <ChevronDown />
+      </button>
+      {open && (
+        <section className="user-popover" role="dialog" aria-label="User details">
+          <div className="user-popover-head">
+            <span className="user-avatar large">{initials || <UserRound />}</span>
+            <div>
+              <strong>{user.displayName}</strong>
+              <span>{user.email}</span>
+            </div>
+          </div>
+          <div className="user-detail">
+            <span>User ID</span>
+            <code>{user.userId}</code>
+          </div>
+          <div className="user-detail">
+            <span>Application role</span>
+            <strong>{user.roles.join(", ").replaceAll("_", " ")}</strong>
+          </div>
+          <div className="user-permissions">
+            <span>Permissions</span>
+            <ul>
+              {user.permissions.map((permission) => (
+                <li key={permission}>
+                  <Check /> {permissionLabels[permission] ?? permission}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <button className="user-signout" onClick={onLogout}>
+            <LogOut /> Sign out
+          </button>
+        </section>
+      )}
+    </div>
   );
 }
 function ProxyDialog({
