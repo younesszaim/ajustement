@@ -28,6 +28,10 @@
   box-shadow: 0 18px 45px rgb(0 65 43 / 15%);
   overflow: hidden;
 }
+.mapping-popover.open-above {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
 .mapping-search,
 .mapping-table-search {
   display: flex;
@@ -126,9 +130,11 @@
 .mapping-table-dialog {
   width: min(1100px, 100%);
   margin: auto;
-  border-radius: 10px;
+  border: 1px solid #d4d4d8;
+  border-radius: 8px;
   background: #fff;
-  padding: 22px;
+  padding: 0;
+  box-shadow: 0 18px 50px rgb(0 0 0 / 18%);
 }
 .mapping-table-dialog > header,
 .mapping-table-dialog > footer {
@@ -137,41 +143,75 @@
   justify-content: space-between;
   gap: 18px;
 }
+.mapping-dialog-header {
+  border-bottom: 1px solid #e4e4e7;
+  padding: 18px 20px;
+}
 .mapping-table-dialog h2 {
-  margin: 4px 0;
+  margin: 0 0 4px;
+  font-size: 18px;
 }
 .mapping-table-dialog header p {
   margin: 0;
   color: #71717a;
+  font-size: 12px;
+}
+.mapping-dialog-header > button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid #d4d4d8;
+  border-radius: 5px;
+  background: #fff;
+  color: #52525b;
+  font-size: 20px;
 }
 .mapping-table-meta {
-  display: grid;
-  grid-template-columns: 1fr 2fr 1fr;
-  gap: 12px;
-  margin: 20px 0;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border-bottom: 1px solid #e4e4e7;
+  padding: 10px 20px;
 }
 .mapping-table-meta > div {
+  display: flex;
+  gap: 6px;
+  border-right: 1px solid #e4e4e7;
+  padding-right: 14px;
+  margin-right: 14px;
+  white-space: nowrap;
+}
+.mapping-table-meta details {
   min-width: 0;
-  display: grid;
-  gap: 5px;
-  border-left: 2px solid #007a4d;
-  background: #f7fbf9;
-  padding: 10px;
+  color: #71717a;
+  font-size: 11px;
+}
+.mapping-table-meta summary {
+  cursor: pointer;
+}
+.mapping-table-meta details[open] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .mapping-table-meta code {
+  max-width: 360px;
   overflow: hidden;
+  color: #52525b;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .mapping-table-search {
   border: 1px solid #d4d4d8;
   border-radius: 6px;
-  margin-bottom: 14px;
+  margin: 14px 20px;
 }
 .mapping-table-scroll {
   overflow-x: auto;
-  border: 1px solid #e4e4e7;
-  border-radius: 7px;
+  border-top: 1px solid #e4e4e7;
+  border-bottom: 1px solid #e4e4e7;
 }
 .mapping-table-scroll table {
   width: 100%;
@@ -190,12 +230,12 @@
   font-size: 10px;
 }
 .mapping-output {
-  background: #edf7f2;
+  background: #f4faf7;
   color: #006b43;
-  font-weight: 800;
+  font-weight: 700;
 }
 .mapping-table-dialog > footer {
-  margin-top: 14px;
+  padding: 12px 20px;
 }
 .mapping-table-dialog footer div,
 .mapping-table-dialog footer button {
@@ -224,9 +264,15 @@
 }
 @media (max-width: 700px) {
   .mapping-table-meta {
-    grid-template-columns: 1fr;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
   }
-  .mapping-table-dialog > header,
+  .mapping-table-meta > div {
+    border-right: 0;
+    margin: 0;
+    padding: 0;
+  }
   .mapping-table-dialog > footer {
     align-items: stretch;
     flex-direction: column;

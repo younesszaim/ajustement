@@ -857,21 +857,185 @@ aside ol {
 .row-flow > svg {
   color: #a1a1aa;
 }
-.changes,
+.calculation-result,
 .reason {
   border-top: 1px solid #e4e4e7;
   margin-top: 22px;
   padding-top: 18px;
 }
-.changes > div {
-  display: grid;
-  grid-template-columns: 1fr 150px 24px 150px;
-  align-items: center;
-  padding: 9px 0;
-  border-bottom: 1px solid #f4f4f5;
+.result-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
 }
-.changes > div > span:nth-child(2) {
+.result-heading h3 {
+  margin: 4px 0 0;
+  font-size: 16px;
+}
+.result-heading > strong {
+  color: #007a4d;
+  font-size: 11px;
+}
+.result-table {
+  overflow-x: auto;
+  border: 1px solid #e4e4e7;
+  border-radius: 7px;
+}
+.result-table-head,
+.result-row {
+  display: grid;
+  grid-template-columns: minmax(170px, 1.3fr) minmax(110px, 1fr) minmax(110px, 1fr) 100px;
+  gap: 14px;
+  align-items: center;
+  min-width: 650px;
+  padding: 10px 12px;
+}
+.result-table-head {
+  background: #fafafa;
   color: #71717a;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.result-row {
+  border-top: 1px solid #f0f0f1;
+}
+.result-field {
+  display: grid;
+  gap: 2px;
+}
+.result-field small {
+  color: #007a4d;
+  font-size: 10px;
+}
+.result-before {
+  color: #71717a;
+  text-decoration: line-through;
+}
+.result-after {
+  color: #005b3a;
+}
+.result-delta {
+  justify-self: start;
+  border-radius: 999px;
+  background: #edf7f2;
+  color: #006b44;
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.result-empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #cfe4da;
+  border-radius: 7px;
+  background: #f4faf7;
+  padding: 13px;
+  color: #006b44;
+}
+.result-empty div {
+  display: grid;
+  gap: 3px;
+}
+.result-empty span {
+  color: #52525b;
+  font-size: 11px;
+}
+.calculation-path,
+.mapping-decisions {
+  margin-top: 16px;
+}
+.calculation-path > span,
+.mapping-decisions-title > span {
+  display: block;
+  color: #71717a;
+  font-size: 11px;
+}
+.calculation-path > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.calculation-path > div > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #d7e1dc;
+  border-radius: 999px;
+  padding: 5px 9px;
+  color: #3f3f46;
+  font-size: 10px;
+  text-transform: capitalize;
+}
+.calculation-path b {
+  display: grid;
+  width: 17px;
+  height: 17px;
+  place-items: center;
+  border-radius: 50%;
+  background: #007a4d;
+  color: #fff;
+  font-size: 9px;
+}
+.calculation-path .no-stage {
+  border-style: dashed;
+  color: #71717a;
+}
+.mapping-decisions {
+  overflow: hidden;
+  border: 1px solid #e4e4e7;
+  border-radius: 7px;
+}
+.mapping-decisions-title {
+  padding: 11px 12px;
+}
+.mapping-decisions-title strong,
+.mapping-decisions-title span {
+  display: block;
+}
+.mapping-decisions-title strong {
+  margin-bottom: 2px;
+  font-size: 12px;
+}
+.mapping-decision-head,
+.mapping-decision-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(120px, 1fr) 2fr;
+  gap: 12px;
+  padding: 8px 12px;
+}
+.mapping-decision-head {
+  border-top: 1px solid #e4e4e7;
+  background: #fafafa;
+  color: #71717a;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.mapping-decision-row {
+  border-top: 1px solid #f0f0f1;
+  font-size: 11px;
+}
+.mapping-decision-row > span:last-child {
+  color: #71717a;
+  text-transform: capitalize;
+}
+@media (max-width: 700px) {
+  .result-heading,
+  .apply-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .mapping-decision-head {
+    display: none;
+  }
+  .mapping-decision-row {
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
 }
 .reason textarea {
   width: 100%;
@@ -880,6 +1044,22 @@ aside ol {
   border-radius: 5px;
   padding: 10px;
   margin-top: 7px;
+  resize: vertical;
+}
+.cancel-reason {
+  display: grid;
+  gap: 7px;
+  margin-top: 18px;
+  font-weight: 600;
+}
+.cancel-reason textarea {
+  width: 100%;
+  min-height: 82px;
+  border: 1px solid #d4d4d8;
+  border-radius: 5px;
+  padding: 10px;
+  font: inherit;
+  font-weight: 400;
   resize: vertical;
 }
 .reason small {

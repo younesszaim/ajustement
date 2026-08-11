@@ -50,6 +50,7 @@ const labels: Record<string, string> = {
   amount: "Amount",
   currency: "Currency",
   counterparty: "Counterparty",
+  exposureClass: "Exposure class",
   securityId: "Security ID",
   reportingLineLcr: "Reporting line LCR",
   eurAmount30d: "EUR amount 30D",
@@ -282,7 +283,7 @@ export function App({
     onSuccess: (result) => {
       setPreview(result);
       setReason("");
-      setTab("preview");
+      setConfirm(true);
     },
     onError: (e) => {
       setNoticeError(true);
@@ -1065,16 +1066,18 @@ export function App({
                         </button>
                       ) : (
                       <>
-                        <button
-                          className="cancel-trade-button"
-                          disabled={cancelPreviewMut.isPending}
-                          onClick={() => cancelPreviewMut.mutate()}
-                        >
-                          {cancelPreviewMut.isPending && <Loader2 className="spin" />}
-                          {canBusinessWrite
-                            ? "Cancel trade effect"
-                            : "Preview cancellation"}
-                        </button>
+                        {canBusinessWrite && (
+                          <button
+                            className="cancel-trade-button"
+                            disabled={cancelPreviewMut.isPending}
+                            onClick={() => cancelPreviewMut.mutate()}
+                          >
+                            {cancelPreviewMut.isPending && (
+                              <Loader2 className="spin" />
+                            )}
+                            Cancel trade
+                          </button>
+                        )}
                         <button
                           className="primary"
                           onClick={() => setTab("adjustment")}
@@ -1358,33 +1361,80 @@ export function App({
         <div className="modal-back">
           <div className="modal">
             <AlertCircle />
-            <h2>Apply adjustment?</h2>
+            <h2>
+              {preview.operationType === "TRADE_CANCELLATION"
+                ? "Cancel this trade?"
+                : "Apply adjustment?"}
+            </h2>
             <p>
               {preview.operationType === "TRADE_CANCELLATION"
-                ? "This creates one reversal row and cancels the trade effect for "
+                ? "A reversal row will cancel the active effect of "
                 : "This creates one reversal and one adjusted row for "}
               <strong>{preview.original?.tradeNo}</strong>.
             </p>
             <div className="confirm-list">
-              <span>Changed fields</span>
-              <strong>
-                {preview.changedFields.map((x) => x.label).join(", ")}
-              </strong>
+              {preview.operationType !== "TRADE_CANCELLATION" && (
+                <>
+                  <span>Changed fields</span>
+                  <strong>
+                    {preview.changedFields.map((x) => x.label).join(", ")}
+                  </strong>
+                </>
+              )}
               <span>Base snapshot</span>
               <strong>
                 {date} · {new Date(flow).toLocaleTimeString("en-GB")}
               </strong>
             </div>
-            <p className="immutable">The original row remains unchanged.</p>
+            {preview.operationType === "TRADE_CANCELLATION" && (
+              <label className="cancel-reason">
+                <span>Reason for cancellation *</span>
+                <textarea
+                  autoFocus
+                  value={reason}
+                  onChange={(event) => {
+                    singleCommitKey.current = null;
+                    setReason(event.target.value);
+                  }}
+                  placeholder="Explain why this trade must be cancelled…"
+                />
+              </label>
+            )}
+            <p className="immutable">
+              Nothing is deleted. The original row and this action remain in
+              the audit history and can be reverted later.
+            </p>
             <div className="actions">
-              <button onClick={() => setConfirm(false)}>Cancel</button>
               <button
-                className="primary"
-                disabled={commit.isPending}
+                onClick={() => {
+                  setConfirm(false);
+                  if (preview.operationType === "TRADE_CANCELLATION") {
+                    setPreview(null);
+                    setReason("");
+                  }
+                }}
+              >
+                {preview.operationType === "TRADE_CANCELLATION"
+                  ? "Keep trade"
+                  : "Cancel"}
+              </button>
+              <button
+                className={
+                  preview.operationType === "TRADE_CANCELLATION"
+                    ? "cancel-trade-button"
+                    : "primary"
+                }
+                disabled={
+                  commit.isPending ||
+                  (preview.operationType === "TRADE_CANCELLATION" &&
+                    reason.trim().length < 5)
+                }
                 onClick={() => commit.mutate()}
               >
-                {commit.isPending && <Loader2 className="spin" />}Apply
-                adjustment
+                {commit.isPending && <Loader2 className="spin" />}
+                {preview.operationType === "TRADE_CANCELLATION"
+                  ? "Confirm cancellation"
+                  : "Apply adjustment"}
               </button>
             </div>
           </div>
@@ -1498,6 +1548,7 @@ function MappingValueSelector({
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [openAbove, setOpenAbove] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const values = useQuery({
     queryKey: ["mapping-values", definition.fieldName, search],
@@ -1518,13 +1569,31 @@ function MappingValueSelector({
         className="mapping-trigger"
         aria-haspopup="listbox"
         aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => {
+          if (!open && root.current) {
+            const trigger = root.current.getBoundingClientRect();
+            const boundary = root.current
+              .closest(".details")
+              ?.getBoundingClientRect();
+            const boundaryTop = Math.max(boundary?.top ?? 0, 0);
+            const boundaryBottom = Math.min(
+              boundary?.bottom ?? window.innerHeight,
+              window.innerHeight,
+            );
+            const spaceAbove = trigger.top - boundaryTop;
+            const spaceBelow = boundaryBottom - trigger.bottom;
+            setOpenAbove(spaceBelow < 360 && spaceAbove > spaceBelow);
+          }
+          setOpen((current) => !current);
+        }}
       >
         <span>{value || "Select a mapped value"}</span>
         <ChevronsUpDown />
       </button>
       {open && (
-        <div className="mapping-popover">
+        <div
+          className={`mapping-popover ${openAbove ? "open-above" : ""}`}
+        >
           <div className="mapping-search">
             <Search />
             <input
@@ -1599,27 +1668,30 @@ function MappingTableDialog({
   return (
     <div className="modal-back mapping-table-back">
       <section className="mapping-table-dialog">
-        <header>
+        <header className="mapping-dialog-header">
           <div>
-            <span className="eyebrow">LATEST AVAILABLE MAPPING</span>
-            <h2>{definition.displayName}</h2>
+            <h2>Mapping table</h2>
             <p>{definition.description}</p>
           </div>
-          <button onClick={close}>Close ×</button>
+          <button onClick={close} aria-label="Close mapping table">×</button>
         </header>
-        <div className="mapping-table-meta">
+        <div className="mapping-table-meta" aria-label="Mapping details">
           <div>
-            <span>Mapping name</span>
+            <span>Field</span>
+            <strong>{definition.displayName}</strong>
+          </div>
+          <div>
+            <span>Mapping</span>
             <strong>{definition.mappingName}</strong>
           </div>
           <div>
-            <span>S3 source</span>
-            <code>{definition.sourcePath}</code>
-          </div>
-          <div>
-            <span>Selected output</span>
+            <span>Output column</span>
             <strong>{definition.outputColumn}</strong>
           </div>
+          <details>
+            <summary>Source</summary>
+            <code title={definition.sourcePath}>{definition.sourcePath}</code>
+          </details>
         </div>
         <label className="mapping-table-search">
           <Search />
@@ -2440,29 +2512,102 @@ function PreviewView({
           </>
         )}
       </div>
-      <section className="changes">
-        <h3>Calculation result</h3>
-        {preview.mappingOverrides?.map((override) => (
-          <div className="mapping-override-summary" key={override.field}>
-            <span>Manual mapping override</span>
-            <strong>
-              {override.displayName}: {fmt(override.value)}
-            </strong>
-            <ArrowRight />
-            <span>
-              Recalculate{" "}
-              {override.downstreamStages.join(" → ") || "no downstream stage"}
-            </span>
+      <section className="calculation-result">
+        <div className="result-heading">
+          <div>
+            <span className="eyebrow">CALCULATION RESULT</span>
+            <h3>Values after recalculation</h3>
           </div>
-        ))}
-        {preview.differences.map((d) => (
-          <div key={d.field}>
-            <span>{d.label}</span>
-            <span>{fmt(d.current)}</span>
-            <ArrowRight />
-            <strong>{fmt(d.recalculated)}</strong>
+          <strong>{preview.differences.length} value changes</strong>
+        </div>
+
+        {preview.differences.length ? (
+          <div className="result-table">
+            <div className="result-table-head">
+              <span>Field</span>
+              <span>Before</span>
+              <span>After preview</span>
+              <span>Difference</span>
+            </div>
+            {preview.differences.map((difference) => {
+              const override = preview.mappingOverrides?.find(
+                (item) => item.field === difference.field,
+              );
+              return (
+                <div className="result-row" key={difference.field}>
+                  <span className="result-field">
+                    <strong>{difference.label}</strong>
+                    {override && <small>Manual mapping selection</small>}
+                  </span>
+                  <span className="result-before">{fmt(difference.current)}</span>
+                  <strong className="result-after">
+                    {fmt(difference.recalculated)}
+                  </strong>
+                  <span className="result-delta">
+                    {typeof difference.delta === "number"
+                      ? `${difference.delta > 0 ? "+" : ""}${money.format(
+                          difference.delta,
+                        )}`
+                      : "Changed"}
+                  </span>
+                </div>
+              );
+            })}
           </div>
-        ))}
+        ) : (
+          <div className="result-empty">
+            <Check />
+            <div>
+              <strong>No value recalculation is required</strong>
+              <span>
+                {preview.operationType === "TRADE_CANCELLATION"
+                  ? "The preview only creates a reversal of the active row."
+                  : "The generated row keeps the values shown above."}
+              </span>
+            </div>
+          </div>
+        )}
+
+        <div className="calculation-path">
+          <span>Calculation path</span>
+          <div>
+            {preview.impactedStages.length ? (
+              preview.impactedStages.map((stage, index) => (
+                <span key={stage}>
+                  <b>{index + 1}</b>
+                  {stage.replaceAll("_", " ")}
+                </span>
+              ))
+            ) : (
+              <span className="no-stage">No calculation stage executed</span>
+            )}
+          </div>
+        </div>
+
+        {!!preview.mappingOverrides?.length && (
+          <div className="mapping-decisions">
+            <div className="mapping-decisions-title">
+              <strong>Selected mapping values</strong>
+              <span>Manual values used in this preview</span>
+            </div>
+            <div className="mapping-decision-head">
+              <span>Field</span>
+              <span>Selected value</span>
+              <span>Recalculated afterwards</span>
+            </div>
+            {preview.mappingOverrides.map((override) => (
+              <div className="mapping-decision-row" key={override.field}>
+                <strong>{override.displayName}</strong>
+                <span>{fmt(override.value)}</span>
+                <span>
+                  {override.downstreamStages
+                    .map((stage) => stage.replaceAll("_", " "))
+                    .join(" → ") || "No downstream stage"}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
       {canCommit && (
         <section className="reason">
