@@ -47,6 +47,31 @@ class MockRepository:
             trade(4, "SP-830114", "SOPHIS", 320_000, "US0378331005"),
             trade(5, "AP-230912", "APEX", 5_000_000, "FR0000120271"),
         ]
+        # Rich Orchestrade population used by the AG Grid batch-selection demo.
+        portfolios = ["LIQUIDITY", "TREASURY", "COLLATERAL"]
+        counterparties = ["CP_BANK_01", "CP_BANK_02", "CP_SOV_01", "CP_CORP_01"]
+        currencies = ["EUR", "USD", "GBP"]
+        for i in range(6, 31):
+            example = trade(
+                i,
+                f"OT-BATCH-{1000 + i}",
+                "Orchestrade",
+                100_000 + i * 75_000,
+                f"FRBATCH{i:05}",
+                ["SECURITY", "LOAN", "DEPOSIT"][i % 3],
+            )
+            example.update(
+                {
+                    "portfolio": portfolios[i % len(portfolios)],
+                    "counterparty": counterparties[i % len(counterparties)],
+                    "currency": currencies[i % len(currencies)],
+                    "maturityDate": f"2026-{9 + (i % 3):02}-20",
+                    "exposureClass": ["FINANCIAL", "SOVEREIGN", "CORPORATE"][i % 3],
+                    "hqlaLevel": ["L1", "L2A", "NON_HQLA"][i % 3],
+                    "reportingLineLcr": ["RL_SEC_01", "RL_SEC_03", "RL_LOAN_01"][i % 3],
+                }
+            )
+            rows.append(example)
         self.data = {
             ("2026-08-06", FLOW1): deepcopy(rows),
             ("2026-08-06", FLOW2): deepcopy(rows),
@@ -123,6 +148,39 @@ class MockRepository:
 
     def versions(self, date):
         return sorted([f for d, f in self.data if d == date], reverse=True)
+
+    def fo_systems(self, c):
+        return sorted({row["foSystem"] for row in self.data.get(self._key(c), [])})
+
+    def batch_search(self, c, fo_system, filters, page, page_size):
+        rows = [
+            deepcopy(row)
+            for row in self.data.get(self._key(c), [])
+            if row["foSystem"] == fo_system
+        ]
+        text_fields = {
+            "tradeNo", "portfolio", "counterparty", "isin",
+            "targetInstrumentType", "currency", "exposureClass",
+            "hqlaLevel", "reportingLineLcr",
+        }
+        rows = [
+            row for row in rows
+            if all(
+                not str(value).strip()
+                or str(value).lower() in str(row.get(field, "")).lower()
+                for field, value in filters.items() if field in text_fields
+            )
+        ]
+        if filters.get("maturityDateFrom"):
+            rows = [row for row in rows if row.get("maturityDate", "") >= filters["maturityDateFrom"]]
+        if filters.get("maturityDateTo"):
+            rows = [row for row in rows if row.get("maturityDate", "") <= filters["maturityDateTo"]]
+        if filters.get("amountMin") not in (None, ""):
+            rows = [row for row in rows if row.get("amount", 0) >= float(filters["amountMin"])]
+        if filters.get("amountMax") not in (None, ""):
+            rows = [row for row in rows if row.get("amount", 0) <= float(filters["amountMax"])]
+        start = (page - 1) * page_size
+        return rows[start:start + page_size], len(rows)
 
     def _key(self, c):
         return (c.asofdate.isoformat(), c.asofdateflow.isoformat())

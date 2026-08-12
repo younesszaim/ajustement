@@ -44,6 +44,12 @@ class HybridAdjustmentRepository:
     def search(self, *args):
         return self.output.search(*args)
 
+    def fo_systems(self, *args):
+        return self.output.fo_systems(*args)
+
+    def batch_search(self, *args):
+        return self.output.batch_search(*args)
+
     def get_effective_trade(self, *args):
         return self.output.get_effective_trade(*args)
 

@@ -37,7 +37,7 @@ export interface Trade {
   recordType: RecordType;
   isAdjusted?: boolean;
   adjustmentCount?: number;
-  activeRecordType?: RecordType;
+  activeRecordType?: RecordType | "CANCELLED";
   lineageRole?: "ORIGINAL" | "REVERSAL" | "ADJUSTED";
   isActive?: boolean;
   isCancelled?: boolean;
@@ -79,6 +79,21 @@ export interface BatchPreview {
   impactedStages: string[];
   recalculatedFields: string[];
   aggregateDeltas: { field: string; label: string; delta: number }[];
+}
+export interface BatchTradeFilters {
+  tradeNo?: string;
+  portfolio?: string;
+  counterparty?: string;
+  isin?: string;
+  targetInstrumentType?: string;
+  currency?: string;
+  exposureClass?: string;
+  hqlaLevel?: string;
+  reportingLineLcr?: string;
+  maturityDateFrom?: string;
+  maturityDateTo?: string;
+  amountMin?: number | string;
+  amountMax?: number | string;
 }
 export interface TradeLineage {
   isAdjusted: boolean;

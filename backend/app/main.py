@@ -15,6 +15,7 @@ from .models import (
     CommitRequest,
     BatchCommitRequest,
     BatchPreviewRequest,
+    BatchTradeSearchRequest,
     RevertAdjustmentRequest,
     CancelTradeRequest,
     CancelTradeCommitRequest,
@@ -43,6 +44,7 @@ from .auth import (
     require,
 )
 from .mappings import build_mapping_provider
+from .config import BATCH_FILTER_FIELDS
 
 load_dotenv()
 storage_mode = os.getenv("STORAGE_MODE", "supabase").lower()
@@ -150,6 +152,35 @@ def versions(asofdate: str, identity=Depends(require(READ))):
     result = repo.versions(asofdate)
     audit("DATE_SELECTED", {"asofdate": asofdate, "availableVersions": len(result)}, identity)
     return result
+
+
+@app.get("/api/fo-systems", tags=["Snapshots and trades"])
+def fo_systems(
+    asofdate: str,
+    asofdateflow: str,
+    identity=Depends(require(READ)),
+):
+    context = LimonContext(asofdate=asofdate, asofdateflow=asofdateflow)
+    return repo.fo_systems(context)
+
+
+@app.get("/api/trades/batch-filters", tags=["Snapshots and trades"])
+def batch_filter_fields(identity=Depends(require(READ))):
+    return BATCH_FILTER_FIELDS
+
+
+@app.post("/api/trades/batch-search", tags=["Snapshots and trades"])
+def batch_trade_search(
+    req: BatchTradeSearchRequest,
+    identity=Depends(require(PREVIEW)),
+):
+    unknown = set(req.filters) - set(BATCH_FILTER_FIELDS)
+    if unknown:
+        fail(DomainError(f'Unsupported batch filter "{sorted(unknown)[0]}".'))
+    items, total = repo.batch_search(
+        req.context, req.foSystem, req.filters, req.page, req.pageSize
+    )
+    return {"items": items, "total": total}
 
 
 @app.get("/api/trades", tags=["Snapshots and trades"])

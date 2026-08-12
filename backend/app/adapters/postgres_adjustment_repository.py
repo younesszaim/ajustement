@@ -89,6 +89,74 @@ class PostgresAdjustmentRepository:
                 ).fetchall()
             ]
 
+    def fo_systems(self, context):
+        with self.connection() as c:
+            p = self._project_id(c)
+            rows = c.execute(
+                """SELECT DISTINCT fo_system FROM public.v_out_completude_ldp_bmf_current
+                   WHERE project_id=%s AND asofdate=%s AND asofdateflow=%s
+                   ORDER BY fo_system""",
+                (p, context.asofdate, context.asofdateflow),
+            ).fetchall()
+        return [row["fo_system"] for row in rows]
+
+    def batch_search(self, context, fo_system, filters, page, page_size):
+        """Translate only reviewed domain filters into parameterized SQL."""
+        payload_fields = {
+            "portfolio": "portfolio",
+            "counterparty": "counterparty",
+            "isin": "isin",
+            "targetInstrumentType": "targetInstrumentType",
+            "exposureClass": "exposureClass",
+            "hqlaLevel": "hqlaLevel",
+            "reportingLineLcr": "reportingLineLcr",
+        }
+        clauses = [
+            "project_id=%s", "asofdate=%s", "asofdateflow=%s", "fo_system=%s"
+        ]
+        params = [self.project_key, context.asofdate, context.asofdateflow, fo_system]
+        # Replace project key with its UUID before executing.
+        with self.connection() as c:
+            params[0] = self._project_id(c)
+            if filters.get("tradeNo"):
+                clauses.append("trade_no ILIKE %s")
+                params.append(f"%{filters['tradeNo']}%")
+            if filters.get("currency"):
+                clauses.append("currency ILIKE %s")
+                params.append(f"%{filters['currency']}%")
+            for field, payload_key in payload_fields.items():
+                if filters.get(field):
+                    clauses.append(f"row_payload ->> '{payload_key}' ILIKE %s")
+                    params.append(f"%{filters[field]}%")
+            if filters.get("maturityDateFrom"):
+                clauses.append("(row_payload ->> 'maturityDate')::date >= %s")
+                params.append(filters["maturityDateFrom"])
+            if filters.get("maturityDateTo"):
+                clauses.append("(row_payload ->> 'maturityDate')::date <= %s")
+                params.append(filters["maturityDateTo"])
+            if filters.get("amountMin") not in (None, ""):
+                clauses.append("amount >= %s")
+                params.append(filters["amountMin"])
+            if filters.get("amountMax") not in (None, ""):
+                clauses.append("amount <= %s")
+                params.append(filters["amountMax"])
+            where = " AND ".join(clauses)
+            total = c.execute(
+                f"SELECT count(*) AS count FROM public.v_out_completude_ldp_bmf_current WHERE {where}",
+                params,
+            ).fetchone()["count"]
+            rows = c.execute(
+                f"""SELECT * FROM public.v_out_completude_ldp_bmf_current
+                    WHERE {where} ORDER BY trade_no,source_row_id LIMIT %s OFFSET %s""",
+                (*params, page_size, (page - 1) * page_size),
+            ).fetchall()
+        items = []
+        for row in rows:
+            item = self._domain(row)
+            item.update({"isActive": True, "activeRecordType": row["record_type"]})
+            items.append(item)
+        return items, total
+
     def search(self, context, search, fo, page, page_size):
         with self.connection() as c:
             p = self._project_id(c)

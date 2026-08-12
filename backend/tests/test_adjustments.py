@@ -270,6 +270,35 @@ def test_search_expands_all_associated_rows(setup):
     assert [x["isActive"] for x in rows] == [False, False, True]
 
 
+def test_batch_search_returns_only_filtered_effective_rows(setup):
+    repo, _, context = setup
+
+    assert "Orchestrade" in repo.fo_systems(context)
+    rows, total = repo.batch_search(
+        context,
+        "Orchestrade",
+        {"tradeNo": "OT-982731", "portfolio": "LIQ", "amountMin": 900_000},
+        1,
+        25,
+    )
+
+    assert total == 1
+    assert [row["rowId"] for row in rows] == ["ROW-0001"]
+    assert rows[0]["recordType"] == "ADJUSTMENT_REPLACEMENT"
+
+
+def test_batch_search_selection_can_be_paginated(setup):
+    repo, _, context = setup
+
+    first, total = repo.batch_search(context, "Orchestrade", {}, 1, 1)
+    second, _ = repo.batch_search(context, "Orchestrade", {}, 2, 1)
+
+    assert total == 26
+    assert len(first) == 1
+    assert len(second) == 1
+    assert first[0]["rowId"] != second[0]["rowId"]
+
+
 def test_revert_is_append_only_and_restores_prior_state(setup):
     repo, s, c = setup
     before = len(repo.get_history("ROW-0001"))

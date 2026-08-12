@@ -1,5 +1,6 @@
 import type {
   BatchPreview,
+  BatchTradeFilters,
   Context,
   HistoryItem,
   Preview,
@@ -45,6 +46,24 @@ export const api = {
   dates: () => json<string[]>("/api/asofdates"),
   // Snapshot-scoped reads. Query keys in App.tsx must contain the same context.
   versions: (d: string) => json<string[]>(`/api/versions?asofdate=${d}`),
+  foSystems: (c: Context) =>
+    json<string[]>(
+      `/api/fo-systems?asofdate=${encodeURIComponent(c.asofdate)}&asofdateflow=${encodeURIComponent(c.asofdateflow)}`,
+    ),
+  batchTrades: (
+    c: Context,
+    foSystem: string,
+    filters: BatchTradeFilters,
+    page: number,
+    pageSize = 50,
+  ) =>
+    post<{ items: Trade[]; total: number }>("/api/trades/batch-search", {
+      context: c,
+      foSystem,
+      filters,
+      page,
+      pageSize,
+    }),
   trades: (c: Context, q: string, fo: string, page: number) =>
     json<{ items: Trade[]; total: number }>(
       `/api/trades?asofdate=${c.asofdate}&asofdateflow=${encodeURIComponent(c.asofdateflow)}&search=${encodeURIComponent(q)}&foSystem=${encodeURIComponent(fo)}&page=${page}&pageSize=10`,

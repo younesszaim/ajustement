@@ -96,6 +96,35 @@ class BatchPreviewRequest(BaseModel):
     items: list[BatchPreviewItem] = Field(min_length=1)
 
 
+class BatchTradeSearchRequest(BaseModel):
+    """Server-side active-trade filtering for the batch builder."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "context": EXAMPLE_CONTEXT,
+                "foSystem": "Orchestrade",
+                "filters": {
+                    "portfolio": "LIQUIDITY",
+                    "currency": "EUR",
+                    "maturityDateFrom": "2026-08-06",
+                    "maturityDateTo": "2026-12-31",
+                    "amountMin": 100000,
+                    "amountMax": 5000000,
+                },
+                "page": 1,
+                "pageSize": 25,
+            }
+        }
+    )
+
+    context: LimonContext
+    foSystem: str = Field(min_length=1)
+    filters: dict[str, Any] = Field(default_factory=dict)
+    page: int = Field(default=1, ge=1)
+    pageSize: int = Field(default=25, ge=1, le=100)
+
+
 class BatchCommitRequest(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={

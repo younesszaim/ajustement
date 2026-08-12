@@ -337,6 +337,13 @@ UI must not request or render an entire snapshot. A cancelled trade remains
 readable for audit, but `get_effective_trade` rejects it for new writes because
 it has no active business row.
 
+Search results use AG Grid with column sorting and floating filters. Original,
+reversal and adjusted rows remain separate grid rows, while clicking any of
+them opens the shared source-trade detail and lineage. The current active row is
+marked with a green indicator and reversal rows are visually subdued. These
+grid filters refine only the already bounded search result; the mandatory trade
+and FO-system search continues to protect Vertica from full-snapshot reads.
+
 ### Standard adjustment preview and commit
 
 Preview and commit intentionally call the same row-building rules. Preview is
@@ -497,9 +504,30 @@ double commit if the browser retries.
 ### Batch adjustment
 
 A batch contains multiple standard adjustments for the same snapshot context.
-Each item retains its own preview version. The batch preview aggregates changed
-trades, output row count, stages and numeric deltas. Commit fails if any item is
-stale; it must never partially accept a business batch.
+Functional administrators can build it in two ways: add individually previewed
+trades, or open **Create batch adjustment**, select one FO system, filter
+directly from AG Grid column headers, and select active trades across result
+pages. The next step presents one original → adjusted editor per selected trade,
+matching the single-trade Adjustment Workspace. Each trade can therefore carry
+different changes and retains its own preview version. The batch preview
+aggregates changed trades, output row count, stages and numeric deltas. Commit
+fails if any item is stale; it must never partially accept a business batch.
+
+Batch filters are allowlisted in `BATCH_FILTER_FIELDS`; the browser never sends
+SQL. Adapters translate the structured filter object to their physical columns.
+The grid supports trade, portfolio, counterparty, ISIN, instrument, currency,
+exposure class, HQLA, reporting line, maturity and amount filtering. It uses AG
+Grid Community with an infinite data source backed by the structured API, so
+Vertica filtering and pagination remain server-side. There is deliberately no
+implicit "select every matching row" action for very large populations.
+
+Development data includes 25 in-memory Orchestrade examples and migration
+`007_seed_batch_selection_examples.sql` adds 40 hybrid-simulation rows with
+varied portfolios, counterparties, currencies, instruments, classifications,
+maturities and amounts. Orchestrade examples use `OT-BATCH-*` and Murex
+examples use `MX-BATCH-*`. Migration `008_repair_batch_example_trade_prefixes.sql`
+repairs databases where the initial Murex fixtures were already inserted with
+an incorrect `OT-BATCH-*` prefix.
 
 ### Revert workflow
 

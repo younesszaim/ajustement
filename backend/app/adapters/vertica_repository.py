@@ -41,6 +41,16 @@ class VerticaLimonRepository:
             "Use server-side Vertica filtering/pagination and expand associated adjustment rows."
         )
 
+    def fo_systems(self, context):
+        raise NotImplementedError(
+            "Return distinct FO systems for the exact snapshot context."
+        )
+
+    def batch_search(self, context, fo_system, filters, page, page_size):
+        raise NotImplementedError(
+            "Translate the allowlisted batch filters to parameterized Vertica SQL and return effective rows only."
+        )
+
     def get_effective_trade(self, context, row_id):
         raise NotImplementedError(
             "Resolve the latest BASE/ADJUSTMENT_REPLACEMENT for this exact context."

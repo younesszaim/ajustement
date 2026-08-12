@@ -1,11 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AgGridReact } from "ag-grid-react";
 import {
-  createColumnHelper,
-  flexRender,
-  getCoreRowModel,
-  useReactTable,
-} from "@tanstack/react-table";
+  AllCommunityModule,
+  ModuleRegistry,
+  themeQuartz,
+  type ColDef,
+  type GridApi,
+  type GridReadyEvent,
+  type IGetRowsParams,
+  type SelectionChangedEvent,
+} from "ag-grid-community";
 import {
   AlertCircle,
   ArrowRight,
@@ -28,6 +33,7 @@ import {
 import { api } from "./api";
 import type {
   BatchPreview,
+  BatchTradeFilters,
   Context,
   HistoryItem,
   Preview,
@@ -39,6 +45,18 @@ import type {
 const money = new Intl.NumberFormat("en-GB", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
+});
+ModuleRegistry.registerModules([AllCommunityModule]);
+const batchGridTheme = themeQuartz.withParams({
+  accentColor: "#007a4d",
+  borderColor: "#e4e4e7",
+  headerBackgroundColor: "#fafafa",
+  headerTextColor: "#3f3f46",
+  rowHoverColor: "#f4faf7",
+  selectedRowBackgroundColor: "#edf7f2",
+  fontFamily: "inherit",
+  fontSize: 12,
+  spacing: 6,
 });
 const fmt = (v: unknown) =>
   typeof v === "number" ? money.format(v) : String(v ?? "—");
@@ -85,7 +103,6 @@ const summary = [
   "reportingLineLcr",
   "lcrOutflow",
 ];
-const col = createColumnHelper<Trade>();
 export function App({
   user,
   onLogout,
@@ -136,6 +153,7 @@ export function App({
     [revertTarget, setRevertTarget] = useState<HistoryItem | null>(null),
     [revertReason, setRevertReason] = useState(""),
     [showProxy, setShowProxy] = useState(false),
+    [showBatchBuilder, setShowBatchBuilder] = useState(false),
     [proxyDraftId, setProxyDraftId] = useState(() => crypto.randomUUID()),
     [proxyFields, setProxyFields] = useState<ProxyFields>({
       foSystem: "",
@@ -431,51 +449,133 @@ export function App({
       setNotice((e as Error).message);
     },
   });
-  const columns = useMemo(
+  const searchGridRows = useMemo(() => {
+    const items = trades.data?.items ?? [];
+    const latestCancellation = new Map<string, Trade>();
+    items.forEach((item) => {
+      if (
+        item.activeRecordType !== "CANCELLED" ||
+        item.recordType !== "ADJUSTMENT_CANCEL"
+      )
+        return;
+      const previous = latestCancellation.get(item.rowId);
+      const timestamp = item.lineageTimestamp ?? String(item._createdAt ?? "");
+      const previousTimestamp =
+        previous?.lineageTimestamp ?? String(previous?._createdAt ?? "");
+      if (!previous || timestamp >= previousTimestamp)
+        latestCancellation.set(item.rowId, item);
+    });
+    const recordOrder: Record<string, number> = {
+      BASE: 0,
+      ADJUSTMENT_CANCEL: 1,
+      ADJUSTMENT_REPLACEMENT: 2,
+      PROXY: 2,
+    };
+    const batchTime = new Map<string, string>();
+    items.forEach((item) => {
+      if (!item.adjustmentBatchId) return;
+      const key = `${item.rowId}|${item.adjustmentBatchId}`;
+      const timestamp = item.lineageTimestamp ?? String(item._createdAt ?? "");
+      const existing = batchTime.get(key);
+      if (!existing || timestamp < existing) batchTime.set(key, timestamp);
+    });
+    return items
+      .map((item) => ({
+        ...item,
+        _isLatestCancellation:
+          latestCancellation.get(item.rowId)?._outputRecordId ===
+          item._outputRecordId,
+      }))
+      .sort((left, right) => {
+        // Keep every trade lineage readable by default:
+        // BASE, then each batch chronologically as REVERSAL -> ADJUSTED.
+        const trade = left.tradeNo.localeCompare(right.tradeNo);
+        if (trade) return trade;
+        const source = left.rowId.localeCompare(right.rowId);
+        if (source) return source;
+        const leftBase = left.recordType === "BASE" ? 0 : 1;
+        const rightBase = right.recordType === "BASE" ? 0 : 1;
+        if (leftBase !== rightBase) return leftBase - rightBase;
+        const leftTime = left.adjustmentBatchId
+          ? (batchTime.get(`${left.rowId}|${left.adjustmentBatchId}`) ?? "")
+          : "";
+        const rightTime = right.adjustmentBatchId
+          ? (batchTime.get(`${right.rowId}|${right.adjustmentBatchId}`) ?? "")
+          : "";
+        const time = leftTime.localeCompare(rightTime);
+        if (time) return time;
+        const batch = String(left.adjustmentBatchId ?? "").localeCompare(
+          String(right.adjustmentBatchId ?? ""),
+        );
+        if (batch) return batch;
+        return (
+          (recordOrder[left.recordType] ?? 99) -
+          (recordOrder[right.recordType] ?? 99)
+        );
+      });
+  }, [trades.data?.items]);
+  const searchGridColumns = useMemo<ColDef<Trade>[]>(
     () => [
-      col.accessor("tradeNo", { header: "Trade" }),
-      col.accessor("foSystem", { header: "FO system" }),
-      col.accessor("lineageRole", {
-        header: "Associated row",
-        cell: (x) => (
-          <span
-            className={"row-role " + (x.row.original.isActive ? "active" : "")}
-          >
-            {x.getValue() ?? "ORIGINAL"}
-            {x.row.original.isActive && <b>ACTIVE</b>}
-          </span>
-        ),
-      }),
-      col.accessor("recordType", {
-        header: "Record type",
-        cell: (x) => <code>{x.getValue()}</code>,
-      }),
-      col.accessor("adjustmentBatchId", {
-        header: "Adjustment batch",
-        cell: (x) => x.getValue() ?? "—",
-      }),
-      col.accessor("targetInstrumentType", { header: "Instrument" }),
-      col.accessor("isin", { header: "ISIN" }),
-      col.accessor("maturityDate", { header: "Maturity" }),
-      col.accessor("currency", { header: "CCY" }),
-      col.accessor("amount", {
-        header: "Row amount",
-        cell: (x) => money.format(x.getValue()),
-      }),
-      col.accessor("lcrOutflow", {
-        header: "LCR outflow",
-        cell: (x) => money.format(x.getValue()),
-      }),
-      col.accessor("hqlaLevel", { header: "HQLA" }),
-      col.accessor("reportingLineLcr", { header: "LCR line" }),
+      { field: "tradeNo", headerName: "Trade", pinned: "left", minWidth: 140 },
+      { field: "foSystem", headerName: "FO system", minWidth: 120 },
+      {
+        field: "lineageRole",
+        headerName: "Associated row",
+        minWidth: 170,
+        width: 185,
+        valueGetter: ({ data }) =>
+          `${data?.lineageRole ?? "ORIGINAL"}${data?.isActive ? " · ACTIVE" : ""}${data?._isLatestCancellation ? " · CANCELLED" : ""}`,
+        cellRenderer: ({ data }: { data?: Trade }) => {
+          if (!data) return null;
+          return (
+            <span className="lineage-tags">
+              <span
+                className={`lineage-tag role-${String(
+                  data.lineageRole ?? "ORIGINAL",
+                ).toLowerCase()}`}
+              >
+                {data.lineageRole ?? "ORIGINAL"}
+              </span>
+              {data.isActive && (
+                <span className="lineage-tag state-active">ACTIVE</span>
+              )}
+              {Boolean(data._isLatestCancellation) && (
+                <span className="lineage-tag state-cancelled">CANCELLED</span>
+              )}
+            </span>
+          );
+        },
+      },
+      { field: "recordType", headerName: "Record type", minWidth: 190 },
+      {
+        field: "adjustmentBatchId",
+        headerName: "Adjustment batch",
+        minWidth: 210,
+        valueFormatter: ({ value }) => value ?? "—",
+      },
+      { field: "targetInstrumentType", headerName: "Instrument", minWidth: 125 },
+      { field: "isin", headerName: "ISIN", minWidth: 145 },
+      { field: "maturityDate", headerName: "Maturity", minWidth: 120 },
+      { field: "currency", headerName: "CCY", width: 85 },
+      {
+        field: "amount",
+        headerName: "Row amount",
+        filter: "agNumberColumnFilter",
+        valueFormatter: ({ value }) => money.format(Number(value ?? 0)),
+        minWidth: 130,
+      },
+      {
+        field: "lcrOutflow",
+        headerName: "LCR outflow",
+        filter: "agNumberColumnFilter",
+        valueFormatter: ({ value }) => money.format(Number(value ?? 0)),
+        minWidth: 130,
+      },
+      { field: "hqlaLevel", headerName: "HQLA", width: 95 },
+      { field: "reportingLineLcr", headerName: "LCR line", minWidth: 125 },
     ],
     [],
   );
-  const table = useReactTable({
-    data: trades.data?.items ?? [],
-    columns,
-    getCoreRowModel: getCoreRowModel(),
-  });
   const clearContext = () => {
     singleCommitKey.current = null;
     batchCommitKey.current = null;
@@ -580,21 +680,32 @@ export function App({
             </p>
           </div>
           {!showGlobal && (
-            <button
-              className="primary"
-              disabled={!flow}
-              onClick={() => {
-                setProxyFields((current) => ({
-                  ...current,
-                  valueDate: current.valueDate || date,
-                  maturityDate: current.maturityDate || date,
-                }));
-                setShowProxy(true);
-              }}
-            >
-              {canBusinessWrite ? "Add proxy trade" : "Preview proxy trade"}{" "}
-              <ArrowRight />
-            </button>
+            <div className="page-title-actions">
+              {canBusinessWrite && (
+                <button
+                  className="outline"
+                  disabled={!flow}
+                  onClick={() => setShowBatchBuilder(true)}
+                >
+                  Create batch adjustment
+                </button>
+              )}
+              <button
+                className="primary"
+                disabled={!flow}
+                onClick={() => {
+                  setProxyFields((current) => ({
+                    ...current,
+                    valueDate: current.valueDate || date,
+                    maturityDate: current.maturityDate || date,
+                  }));
+                  setShowProxy(true);
+                }}
+              >
+                {canBusinessWrite ? "Add proxy trade" : "Preview proxy trade"}{" "}
+                <ArrowRight />
+              </button>
+            </div>
           )}
         </div>
         {!showGlobal && (
@@ -965,58 +1076,38 @@ export function App({
           </div>
         ) : (
           <section className="table-panel">
-            <div className="table-scroll">
-              <table>
-                <thead>
-                  {table.getHeaderGroups().map((g) => (
-                    <tr key={g.id}>
-                      {g.headers.map((h) => (
-                        <th key={h.id}>
-                          {flexRender(
-                            h.column.columnDef.header,
-                            h.getContext(),
-                          )}
-                        </th>
-                      ))}
-                    </tr>
-                  ))}
-                </thead>
-                <tbody>
-                  {trades.isLoading ? (
-                    <tr>
-                      <td colSpan={9} className="empty">
-                        <Loader2 className="spin" />
-                        Searching this snapshot…
-                      </td>
-                    </tr>
-                  ) : table.getRowModel().rows.length ? (
-                    table.getRowModel().rows.map((r) => (
-                      <tr
-                        key={r.id}
-                        className={
-                          selected === r.original.rowId ? "selected" : ""
-                        }
-                        onClick={() => setSelected(r.original.rowId)}
-                      >
-                        {r.getVisibleCells().map((c) => (
-                          <td key={c.id}>
-                            {flexRender(
-                              c.column.columnDef.cell,
-                              c.getContext(),
-                            )}
-                          </td>
-                        ))}
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={9} className="empty">
-                        No matching trade in this version.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+            <div className="trade-search-grid">
+              <AgGridReact<Trade>
+                theme={batchGridTheme}
+                rowData={searchGridRows}
+                columnDefs={searchGridColumns}
+                defaultColDef={{
+                  filter: "agTextColumnFilter",
+                  floatingFilter: true,
+                  sortable: true,
+                  resizable: true,
+                }}
+                loading={trades.isLoading}
+                getRowId={({ data }) =>
+                  String(
+                    data._outputRecordId ??
+                      `${data.rowId}-${data.recordType}-${data.adjustmentBatchId ?? "base"}`,
+                  )
+                }
+                getRowClass={({ data }) => {
+                  const classes = [];
+                  if (data?.rowId === selected) classes.push("trade-source-selected");
+                  if (data?.isActive) classes.push("trade-row-active");
+                  if (data?._isLatestCancellation)
+                    classes.push("trade-row-cancelled");
+                  if (data?.recordType === "ADJUSTMENT_CANCEL")
+                    classes.push("trade-row-reversal");
+                  return classes.join(" ");
+                }}
+                onRowClicked={({ data }) => data && setSelected(data.rowId)}
+                overlayLoadingTemplate="Searching this snapshot…"
+                overlayNoRowsTemplate="No matching trade in this version"
+              />
             </div>
             <div className="pager">
               <span>{trades.data?.total ?? 0} result(s)</span>
@@ -1486,6 +1577,26 @@ export function App({
           }}
         />
       )}
+      {showBatchBuilder && (
+        <BatchBuilderDialog
+          context={ctx}
+          close={() => setShowBatchBuilder(false)}
+          complete={(result, changesByRow) => {
+            setBatch(
+              result.items.map((item) => ({
+                preview: item,
+                changes: {
+                  ...(changesByRow[item.original!.rowId] ?? {}),
+                },
+              })),
+            );
+            setBatchPreview(result);
+            setShowBatchPreview(true);
+            setShowBatchBuilder(false);
+            batchCommitKey.current = null;
+          }}
+        />
+      )}
       {mappingTable && (
         <MappingTableDialog
           definition={mappingTable}
@@ -1771,6 +1882,260 @@ function MappingTableDialog({
     </div>
   );
 }
+
+function BatchBuilderDialog({
+  context,
+  close,
+  complete,
+}: {
+  context: Context;
+  close: () => void;
+  complete: (
+    preview: BatchPreview,
+    changesByRow: Record<string, Record<string, unknown>>,
+  ) => void;
+}) {
+  const [foSystem, setFoSystem] = useState("");
+  const [step, setStep] = useState<"select" | "adjust">("select");
+  const [selected, setSelected] = useState<Map<string, Trade>>(new Map());
+  const [changesByRow, setChangesByRow] = useState<
+    Record<string, Record<string, unknown>>
+  >({});
+  const gridApi = useRef<GridApi<Trade> | null>(null);
+  const foSystems = useQuery({
+    queryKey: ["fo-systems", context],
+    queryFn: () => api.foSystems(context),
+  });
+  const exposureValues = useQuery({
+    queryKey: ["mapping-values", "exposureClass", ""],
+    queryFn: () => api.mappingValues("exposureClass"),
+  });
+  const hqlaValues = useQuery({
+    queryKey: ["mapping-values", "hqlaLevel", ""],
+    queryFn: () => api.mappingValues("hqlaLevel"),
+  });
+  const reportingValues = useQuery({
+    queryKey: ["mapping-values", "reportingLineLcr", ""],
+    queryFn: () => api.mappingValues("reportingLineLcr"),
+  });
+  const preview = useMutation({
+    mutationFn: () =>
+      api.previewBatch(
+        context,
+        Array.from(selected).map(([rowId]) => ({
+          rowId,
+          changes: changesByRow[rowId] ?? {},
+        })),
+      ),
+    onSuccess: (result) => complete(result, changesByRow),
+  });
+
+  const columns = useMemo<ColDef<Trade>[]>(
+    () => [
+      { field: "tradeNo", headerName: "Trade", pinned: "left", minWidth: 145 },
+      { field: "portfolio", headerName: "Portfolio" },
+      { field: "counterparty", headerName: "Counterparty", minWidth: 150 },
+      { field: "targetInstrumentType", headerName: "Instrument", minWidth: 130 },
+      { field: "isin", headerName: "ISIN", minWidth: 140 },
+      { field: "currency", headerName: "CCY", width: 90 },
+      {
+        field: "amount",
+        headerName: "Amount",
+        filter: "agNumberColumnFilter",
+        valueFormatter: ({ value }) => money.format(Number(value ?? 0)),
+        minWidth: 130,
+      },
+      {
+        field: "maturityDate",
+        headerName: "Maturity",
+        minWidth: 125,
+        filter: "agDateColumnFilter",
+        filterParams: {
+          comparator: (filterDate: Date, cellValue?: string) => {
+            if (!cellValue) return -1;
+            const cellDate = new Date(`${cellValue}T00:00:00`);
+            return cellDate < filterDate ? -1 : cellDate > filterDate ? 1 : 0;
+          },
+        },
+      },
+      { field: "exposureClass", headerName: "Exposure class", minWidth: 145 },
+      { field: "hqlaLevel", headerName: "HQLA", width: 105 },
+      { field: "reportingLineLcr", headerName: "LCR line", minWidth: 125 },
+      {
+        headerName: "Status",
+        valueGetter: ({ data }) =>
+          data?.isAdjusted ? `Adjusted (${data.adjustmentCount})` : "Active",
+        width: 120,
+        filter: false,
+      },
+    ],
+    [],
+  );
+  const toApiFilters = (model: Record<string, any>): BatchTradeFilters => {
+    const filters: BatchTradeFilters = {};
+    Object.entries(model).forEach(([field, value]) => {
+      if (!value) return;
+      if (field === "amount") {
+        if (value.type === "greaterThan" || value.type === "greaterThanOrEqual")
+          filters.amountMin = value.filter;
+        else if (value.type === "lessThan" || value.type === "lessThanOrEqual")
+          filters.amountMax = value.filter;
+        else if (value.type === "inRange") {
+          filters.amountMin = value.filter;
+          filters.amountMax = value.filterTo;
+        } else {
+          filters.amountMin = value.filter;
+          filters.amountMax = value.filter;
+        }
+      } else if (field === "maturityDate") {
+        if (value.type === "greaterThan" || value.type === "greaterThanOrEqual")
+          filters.maturityDateFrom = value.dateFrom;
+        else if (value.type === "lessThan" || value.type === "lessThanOrEqual")
+          filters.maturityDateTo = value.dateFrom;
+        else if (value.type === "inRange") {
+          filters.maturityDateFrom = value.dateFrom;
+          filters.maturityDateTo = value.dateTo;
+        } else {
+          filters.maturityDateFrom = value.dateFrom;
+          filters.maturityDateTo = value.dateFrom;
+        }
+      } else {
+        (filters as Record<string, unknown>)[field] = value.filter ?? "";
+      }
+    });
+    return filters;
+  };
+  const dataSource = useMemo(
+    () => ({
+      getRows: async (params: IGetRowsParams<Trade>) => {
+        if (!foSystem) {
+          params.successCallback([], 0);
+          return;
+        }
+        const pageSize = params.endRow - params.startRow;
+        const page = Math.floor(params.startRow / pageSize) + 1;
+        try {
+          const result = await api.batchTrades(
+            context,
+            foSystem,
+            toApiFilters(params.filterModel),
+            page,
+            pageSize,
+          );
+          params.successCallback(result.items, result.total);
+        } catch {
+          params.failCallback();
+        }
+      },
+    }),
+    [context.asofdate, context.asofdateflow, foSystem],
+  );
+  useEffect(() => {
+    if (gridApi.current) gridApi.current.setGridOption("datasource", dataSource);
+  }, [dataSource]);
+  const selectionChanged = (event: SelectionChangedEvent<Trade>) => {
+    setSelected((current) => {
+      const next = new Map(current);
+      event.api.forEachNode((node) => {
+        if (!node.data) return;
+        if (node.isSelected()) next.set(node.data.rowId, node.data);
+        else next.delete(node.data.rowId);
+      });
+      return next;
+    });
+  };
+  const updateChange = (rowId: string, field: string, value: string) =>
+    setChangesByRow((current) => {
+      const row = { ...(current[rowId] ?? {}) };
+      const typedValue = field === "amount" ? Number(value) : value;
+      const original = selected.get(rowId)?.[field];
+      if (value === "" || Object.is(original, typedValue)) delete row[field];
+      else row[field] = typedValue;
+      return { ...current, [rowId]: row };
+    });
+  const everyTradeReady =
+    selected.size > 0 &&
+    Array.from(selected.keys()).every(
+      (rowId) => Object.keys(changesByRow[rowId] ?? {}).length > 0,
+    );
+  return (
+    <div className="modal-back batch-builder-back">
+      <section className="batch-builder-dialog">
+        <header>
+          <div>
+            <span className="eyebrow">BATCH ADJUSTMENT</span>
+            <h2>{step === "select" ? "Select trades" : "Adjust selected trades"}</h2>
+            <p>{context.asofdate} · {new Date(context.asofdateflow).toLocaleString("en-GB")}</p>
+          </div>
+          <button onClick={close}>Close ×</button>
+        </header>
+        {step === "select" ? (
+          <>
+            <div className="batch-ag-toolbar">
+              <label><span>FO system *</span><select value={foSystem} onChange={(event) => {
+                setFoSystem(event.target.value);
+                setSelected(new Map());
+              }}><option value="">Select an FO system</option>{foSystems.data?.map((system) => <option key={system}>{system}</option>)}</select></label>
+              <div><strong>{selected.size}</strong><span>selected</span></div>
+              <button onClick={() => { setSelected(new Map()); gridApi.current?.deselectAll(); }} disabled={!selected.size}>Clear selection</button>
+            </div>
+            <p className="batch-grid-help">Filter directly below any column header, then select the active trades to adjust.</p>
+            <div className="batch-ag-grid">
+              <AgGridReact<Trade>
+                theme={batchGridTheme}
+                columnDefs={columns}
+                defaultColDef={{ filter: "agTextColumnFilter", floatingFilter: true, sortable: false, resizable: true }}
+                rowModelType="infinite"
+                datasource={dataSource}
+                cacheBlockSize={50}
+                maxBlocksInCache={5}
+                pagination
+                paginationPageSize={50}
+                paginationPageSizeSelector={false}
+                rowSelection={{ mode: "multiRow", checkboxes: true, headerCheckbox: false, enableClickSelection: true }}
+                selectionColumnDef={{ pinned: "left", width: 48, sortable: false }}
+                getRowId={({ data }) => data.rowId}
+                onGridReady={(event: GridReadyEvent<Trade>) => { gridApi.current = event.api; }}
+                onSelectionChanged={selectionChanged}
+                overlayNoRowsTemplate={foSystem ? "No active trade matches these filters" : "Select an FO system"}
+              />
+            </div>
+          </>
+        ) : (
+          <div className="batch-adjust-workspace">
+            <div className="batch-adjust-intro"><strong>{selected.size} selected trades</strong><span>Set at least one change for every trade. Each editor uses the same original → adjusted layout as the single-trade workspace.</span></div>
+            {Array.from(selected.values()).map((trade, index) => {
+              const changes = changesByRow[trade.rowId] ?? {};
+              const fields: Array<[string, string, string, string[]?]> = [
+                ["amount", "Amount", "number"],
+                ["currency", "Currency", "select", ["EUR", "USD", "GBP", "JPY"]],
+                ["maturityDate", "Maturity date", "date"],
+                ["exposureClass", "Exposure class", "select", exposureValues.data?.values ?? []],
+                ["hqlaLevel", "HQLA", "select", hqlaValues.data?.values ?? []],
+                ["reportingLineLcr", "Reporting line LCR", "select", reportingValues.data?.values ?? []],
+              ];
+              return <article className="batch-trade-editor" key={trade.rowId}>
+                <header><div><span>TRADE {index + 1}</span><strong>{trade.tradeNo}</strong><small>{trade.portfolio} · {trade.counterparty}</small></div><button onClick={() => setSelected((current) => { const next = new Map(current); next.delete(trade.rowId); return next; })}>Remove</button></header>
+                <div className="batch-editor-fields">{fields.map(([field, label, type, options]) => <div className={field in changes ? "changed" : ""} key={field}>
+                  <label>{label}</label><span><small>Original</small><strong>{fmt(trade[field])}</strong></span><ArrowRight /><span><small>Adjusted</small>{type === "select" ? <select value={String(changes[field] ?? "")} onChange={(e) => updateChange(trade.rowId, field, e.target.value)}><option value="">Unchanged</option>{options?.map((option) => <option key={option}>{option}</option>)}</select> : <input type={type} value={String(changes[field] ?? "")} placeholder={String(trade[field] ?? "")} onChange={(e) => updateChange(trade.rowId, field, e.target.value)} />}</span>
+                </div>)}</div>
+              </article>;
+            })}
+          </div>
+        )}
+        {preview.error && <div className="batch-builder-error">{(preview.error as Error).message}</div>}
+        <footer>
+          <span>{step === "select" ? "Only active rows are selectable." : "Each trade is version-checked and the final commit remains atomic."}</span>
+          <div className="batch-builder-footer-actions">
+            {step === "adjust" && <button onClick={() => setStep("select")}>Back to selection</button>}
+            {step === "select" ? <button className="primary" disabled={!selected.size} onClick={() => setStep("adjust")}>Adjust {selected.size} trades <ArrowRight /></button> : <button className="primary" disabled={!everyTradeReady || preview.isPending} onClick={() => preview.mutate()}>{preview.isPending && <Loader2 className="spin" />} Preview {selected.size} adjustments</button>}
+          </div>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
 function UserMenu({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);

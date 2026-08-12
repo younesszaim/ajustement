@@ -147,6 +147,46 @@ Example response:
 ["2026-08-07T11:14:09"]
 ```
 
+### `GET /api/fo-systems` — read-only
+
+Returns distinct FO systems for one exact snapshot. Supply `asofdate` and
+`asofdateflow` as query parameters, then use one returned value in batch search.
+
+### `GET /api/trades/batch-filters` — read-only
+
+Returns the allowlisted filter names and types supported by the batch builder.
+
+### `POST /api/trades/batch-search` — read-only
+
+Returns only active, adjustable trades. Filtering and pagination happen on the
+server so the browser never loads a complete output snapshot.
+
+The batch UI translates AG Grid floating-filter models into this allowlisted
+payload. Text columns use contains matching, amount supports equality/ranges,
+and maturity supports date comparisons/ranges.
+
+```json
+{
+  "context": {
+    "asofdate": "2026-08-06",
+    "asofdateflow": "2026-08-07T11:14:09"
+  },
+  "foSystem": "Orchestrade",
+  "filters": {
+    "portfolio": "LIQUIDITY",
+    "currency": "EUR",
+    "maturityDateFrom": "2026-08-06",
+    "maturityDateTo": "2026-12-31",
+    "amountMin": 100000,
+    "amountMax": 5000000
+  },
+  "page": 1,
+  "pageSize": 25
+}
+```
+
+Unknown filter names return `422`. Raw SQL expressions are never accepted.
+
 ### `GET /api/trades` — read-only
 
 Required filters in normal UI usage are `search` and `foSystem`. `pageSize` is

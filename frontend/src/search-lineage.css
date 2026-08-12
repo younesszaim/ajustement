@@ -28,3 +28,77 @@
   font-size: 10px;
   white-space: nowrap;
 }
+.trade-search-grid {
+  height: 430px;
+}
+.trade-search-grid .ag-root-wrapper {
+  border: 0;
+  border-radius: 0;
+}
+.trade-search-grid .ag-header-cell-text {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.trade-search-grid .ag-row {
+  cursor: pointer;
+}
+.trade-search-grid .ag-row.trade-source-selected {
+  background: #f7fbf9;
+}
+.trade-search-grid .ag-row.trade-row-active {
+  background: #eaf6f0;
+  box-shadow: inset 4px 0 #007a4d;
+  color: #123d2d;
+  font-weight: 600;
+}
+.trade-search-grid .ag-row.trade-row-reversal {
+  color: #71717a;
+}
+.trade-search-grid .ag-row.trade-row-cancelled {
+  background: #fef2f2;
+  box-shadow: inset 4px 0 #b42318;
+  color: #7f1d1d;
+}
+.lineage-tags {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+  white-space: nowrap;
+}
+.lineage-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 17px;
+  border: 1px solid #d9dddB;
+  border-radius: 4px;
+  background: #fafafa;
+  padding: 0 5px;
+  color: #52525b;
+  font-size: 8px;
+  font-weight: 650;
+  letter-spacing: .025em;
+  line-height: 1;
+}
+.lineage-tag.role-reversal {
+  border-style: dashed;
+  background: #fff;
+  color: #6b7280;
+}
+.lineage-tag.role-adjusted,
+.lineage-tag.role-proxy {
+  border-color: #b9d8ca;
+  background: #f7fbf9;
+  color: #176649;
+}
+.lineage-tag.state-active {
+  border-color: #08784d;
+  background: #08784d;
+  color: #fff;
+}
+.lineage-tag.state-cancelled {
+  border-color: #e7b4b0;
+  background: #fff5f4;
+  color: #a2261d;
+}

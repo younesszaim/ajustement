@@ -55,3 +55,21 @@ STAGE_DEPENDENCIES = {
     "reporting_lines": {"exposure_class", "hqla"},
     "lcr_impacts": {"reporting_lines", "buckets", "eur_amount"},
 }
+
+# Safe server-side filters exposed by the batch-selection API. The key is the
+# stable domain field used by React; adapters translate it to physical columns.
+BATCH_FILTER_FIELDS = {
+    "tradeNo": {"type": "text"},
+    "portfolio": {"type": "text"},
+    "counterparty": {"type": "text"},
+    "isin": {"type": "text"},
+    "targetInstrumentType": {"type": "text"},
+    "currency": {"type": "text"},
+    "exposureClass": {"type": "text"},
+    "hqlaLevel": {"type": "text"},
+    "reportingLineLcr": {"type": "text"},
+    "maturityDateFrom": {"type": "date"},
+    "maturityDateTo": {"type": "date"},
+    "amountMin": {"type": "number"},
+    "amountMax": {"type": "number"},
+}

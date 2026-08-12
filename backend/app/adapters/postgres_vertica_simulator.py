@@ -104,6 +104,11 @@ class PostgresVerticaSimulatorRepository:
             ).fetchall()
             return [self._iso(row["asofdateflow"]) for row in rows]
 
+    def fo_systems(self, context):
+        with self.connection() as connection:
+            rows = self._context_rows(connection, context)
+        return sorted({row["fo_system"] for row in rows if row.get("fo_system")})
+
     def _context_rows(self, connection, context):
         return connection.execute(
             f"""SELECT o.*,l.source_output_record_id,l.parent_output_record_id,l.item_position
@@ -181,6 +186,55 @@ class PostgresVerticaSimulatorRepository:
                 expanded.append(item)
         start = (page - 1) * page_size
         return expanded[start : start + page_size], len(expanded)
+
+    def batch_search(self, context, fo_system, filters, page, page_size):
+        """Return only effective rows eligible for a new batch adjustment."""
+        with self.connection() as connection:
+            grouped = self._group_rows(self._context_rows(connection, context))
+        matches = []
+        text_fields = {
+            "tradeNo", "portfolio", "counterparty", "isin",
+            "targetInstrumentType", "currency", "exposureClass",
+            "hqlaLevel", "reportingLineLcr",
+        }
+        for rows in grouped.values():
+            active = self._active(rows)
+            if not active:
+                continue
+            item = self._domain(active)
+            if item["foSystem"] != fo_system:
+                continue
+            if any(
+                str(value).casefold() not in str(item.get(field) or "").casefold()
+                for field, value in filters.items()
+                if field in text_fields and str(value).strip()
+            ):
+                continue
+            maturity = item.get("maturityDate") or ""
+            if filters.get("maturityDateFrom") and maturity < filters["maturityDateFrom"]:
+                continue
+            if filters.get("maturityDateTo") and maturity > filters["maturityDateTo"]:
+                continue
+            amount = item.get("amount")
+            if filters.get("amountMin") not in (None, "") and amount < float(filters["amountMin"]):
+                continue
+            if filters.get("amountMax") not in (None, "") and amount > float(filters["amountMax"]):
+                continue
+            replacement_count = sum(
+                row["record_type"] == "ADJUSTMENT_REPLACEMENT" for row in rows
+            )
+            item.update(
+                {
+                    "isActive": True,
+                    "isAdjusted": replacement_count > 0,
+                    "adjustmentCount": replacement_count,
+                    "activeRecordType": active["record_type"],
+                }
+            )
+            matches.append(item)
+        matches.sort(key=lambda item: (item["tradeNo"], item["rowId"]))
+        start = (page - 1) * page_size
+        return matches[start : start + page_size], len(matches)
 
     def _lineage_rows(self, connection, context, row_id):
         rows = self._context_rows(connection, context)
