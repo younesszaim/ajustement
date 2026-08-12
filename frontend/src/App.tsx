@@ -93,9 +93,17 @@ export function App({
   user: AuthUser;
   onLogout: () => void;
 }) {
+  /*
+   * App orchestrates the workspace. React Query owns authoritative server
+   * state; the hooks below own only drafts, selection and open dialogs. Child
+   * components near the end of this file receive data/callbacks and do not
+   * call the API directly.
+   */
   const qc = useQueryClient();
   const canBusinessWrite = user.permissions.includes("business_write");
   const canTechnicalAdmin = user.permissions.includes("technical_admin");
+  // Retry identities live in refs so rerenders cannot turn one user intention
+  // into multiple backend commits. Editing the related draft clears the key.
   const singleCommitKey = useRef<string | null>(null);
   const batchCommitKey = useRef<string | null>(null);
   const revertCommitKey = useRef<string | null>(null);
@@ -144,6 +152,8 @@ export function App({
     [proxyPreview, setProxyPreview] = useState<Preview | null>(null),
     [proxyReason, setProxyReason] = useState(""),
     [mappingTable, setMappingTable] = useState<MappedField | null>(null);
+  // Query keys mirror backend scope. Context and filter changes must create a
+  // new cache entry rather than display rows from an earlier LiMon version.
   const dates = useQuery({ queryKey: ["dates"], queryFn: api.dates });
   const mappedFields = useQuery({
     queryKey: ["mapped-fields"],
@@ -217,6 +227,8 @@ export function App({
     queryFn: () => api.impact(ctx, selected, changes),
     enabled: !!selected && Object.keys(changes).length > 0,
   });
+  // Preview is read-only and returns the rowVersion later submitted by commit.
+  // The small delay visualizes mocked stages; production can report real work.
   const previewMut = useMutation({
     mutationFn: async () => {
       const [result] = await Promise.all([
@@ -243,6 +255,8 @@ export function App({
     const id = setInterval(() => setStep((s) => Math.min(s + 1, 3)), 430);
     return () => clearInterval(id);
   }, [previewMut.isPending]);
+  // This promotes either a standard preview or the internal cancellation
+  // safety preview. Success invalidates all currently visible server views.
   const commit = useMutation({
     mutationFn: () =>
       preview?.operationType === "TRADE_CANCELLATION"
@@ -278,6 +292,8 @@ export function App({
       setNotice((e as Error).message);
     },
   });
+  // Cancellation has no user-facing Preview tab. This internal read still
+  // captures the active row and its optimistic-lock version before confirmation.
   const cancelPreviewMut = useMutation({
     mutationFn: () => api.previewCancellation(ctx, selected),
     onSuccess: (result) => {
@@ -322,6 +338,8 @@ export function App({
       setNotice((e as Error).message);
     },
   });
+  // Each item carries its own preview version. The backend rejects the whole
+  // batch when any one of those effective rows has become stale.
   const batchCommit = useMutation({
     mutationFn: () =>
       api.commitBatch(
@@ -369,6 +387,8 @@ export function App({
       setNotice((e as Error).message);
     },
   });
+  // Revert creates compensating output and a linked audit batch; it never
+  // deletes the selected commit or any physical output row.
   const revertMut = useMutation({
     mutationFn: () =>
       api.revertAdjustment(
@@ -1546,6 +1566,8 @@ function MappingValueSelector({
   onChange: (value: string) => void;
   viewTable: () => void;
 }) {
+  // Values load only while open. Position is calculated against the workspace
+  // so mapping selectors near its bottom open upward instead of being clipped.
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [openAbove, setOpenAbove] = useState(false);
@@ -2483,6 +2505,8 @@ function PreviewView({
   pending: boolean;
   canCommit: boolean;
 }) {
+  // Mirror backend concepts: output journal, calculated differences, ordered
+  // stages and manual mapping decisions. No write occurs from this component.
   return (
     <div className="preview">
       <div className="preview-head">

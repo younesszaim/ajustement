@@ -24,6 +24,13 @@ def _load_factory(path: str):
 
 
 def build_repository():
+    """Compose the repository selected by ``STORAGE_MODE``.
+
+    ``supabase`` uses one PostgreSQL implementation; ``hybrid_sim`` keeps two
+    independent connections to simulated output and metadata schemas; and
+    ``hybrid`` combines the enterprise Vertica factory with PostgreSQL audit.
+    The API and domain service receive the same interface in every mode.
+    """
     mode = os.getenv("STORAGE_MODE", "supabase").lower()
     project = os.getenv("ADJUSTMENT_PROJECT_KEY", "limon_ldp_bmf")
     if mode == "supabase":

@@ -1,3 +1,11 @@
+"""LiMon adjustment domain workflows.
+
+The service is storage-agnostic. It builds immutable output rows, resolves the
+smallest calculation path, validates optimistic concurrency and delegates
+atomic/recoverable persistence to a repository. Preview calls the same builder
+as commit but performs no writes.
+"""
+
 from __future__ import annotations
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -29,12 +37,18 @@ class InfrastructureError(Exception):
 
 
 def row_version(row: dict[str, Any]) -> str:
+    """Return a deterministic optimistic-lock token for an effective row."""
     stable = {k: v for k, v in row.items() if not k.startswith("adjustment")}
     return sha256(json.dumps(stable, sort_keys=True, default=str).encode()).hexdigest()
 
 
 class DependencyResolver:
     def resolve(self, fields: set[str]) -> list[str]:
+        """Expand changed fields to a topologically ordered calculation path.
+
+        Example: ``{"amount"}`` seeds EUR and bucket stages, which then pull in
+        LCR impacts through ``STAGE_DEPENDENCIES``.
+        """
         seeds = set().union(*(FIELD_DEPENDENCIES.get(f, set()) for f in fields))
         affected = set(seeds)
         changed = True
@@ -115,6 +129,12 @@ class AdjustmentService:
         self.calc = MockCalculationAdapter()
 
     def _build(self, context, row_id, changes):
+        """Build the authoritative preview journal for one standard adjustment.
+
+        The result contains the current row, its additive negative reversal,
+        the recalculated replacement, audit-friendly differences, and a row
+        version used later by commit.
+        """
         current = self.repo.get_effective_trade(context, row_id)
         illegal = set(changes) - EDITABLE_FIELDS
         if illegal:
@@ -211,6 +231,7 @@ class AdjustmentService:
         return cancellation
 
     def preview_cancellation(self, context, row_id):
+        """Build the single reversal used to cancel all active trade effect."""
         current = self.repo.get_effective_trade(context, row_id)
         cancellation = self._cancel_row(current)
         return {

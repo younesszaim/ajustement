@@ -12,6 +12,13 @@ from ..services import InfrastructureError
 
 
 class HybridAdjustmentRepository:
+    """Facade over independent output and audit repositories.
+
+    Commit methods reserve durable metadata first, write output using a stable
+    batch reference, then finalize metadata. A failure after output commit is
+    recoverable because reconciliation can locate those output rows by the same
+    reference instead of inserting them again.
+    """
     def __init__(
         self,
         output_repository,
@@ -108,6 +115,12 @@ class HybridAdjustmentRepository:
         )
 
     def reconcile_adjustment(self, batch_reference):
+        """Finalize metadata for output rows already committed externally.
+
+        Reconciliation is idempotent: it locates rows using the stable batch
+        reference and never inserts them again. Once metadata is complete,
+        history and business revert become available normally.
+        """
         if not hasattr(self.audit, "get_recovery_request_by_batch_reference"):
             raise InfrastructureError(
                 "This audit repository does not support interactive reconciliation."
@@ -159,9 +172,16 @@ class HybridAdjustmentRepository:
             ) from exc
 
     def commit_adjustment(self, built, reason, user, key):
+        """Commit one standard journal through the shared batch coordinator."""
         return self.commit_adjustment_batch([built], reason, user, key)
 
     def commit_adjustment_batch(self, built_items, reason, user, key):
+        """Coordinate one logical business commit across output and metadata.
+
+        The idempotency key is reserved before the output write. If metadata
+        finalization later fails, the durable request and batch reference are
+        sufficient for ``reconcile_adjustment`` to finish safely.
+        """
         existing = self.get_idempotent(key)
         if existing:
             return existing

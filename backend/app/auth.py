@@ -17,7 +17,7 @@ import time
 from typing import Callable
 
 from fastapi import HTTPException, Request, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 SESSION_COOKIE = "limon_session"
@@ -86,6 +86,10 @@ MOCK_USERS = {
 
 
 class MockLoginRequest(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={"example": {"username": "francois.functional"}}
+    )
+
     username: str
 
 

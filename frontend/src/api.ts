@@ -11,6 +11,16 @@ import type {
   MappedField,
   MappingRows,
 } from "./types";
+
+/**
+ * Single browser-to-backend boundary.
+ *
+ * Components call these typed functions instead of using fetch directly. The
+ * session cookie is included automatically and FastAPI's `detail` message is
+ * converted to an Error so React Query mutations can display it consistently.
+ *
+ * Example: `api.trade(context, rowId)` always supplies both snapshot keys.
+ */
 const json = async <T>(url: string, init?: RequestInit): Promise<T> => {
   const r = await fetch(url, { credentials: "include", ...init });
   const body = await r.json().catch(() => ({ detail: r.statusText }));
@@ -24,6 +34,8 @@ const post = <T>(url: string, body: unknown) =>
     body: JSON.stringify(body),
   });
 export const api = {
+  // Session bootstrap. Production can replace the backend identity adapter
+  // without changing these stable frontend contracts.
   authMe: () => json<AuthUser>("/api/auth/me"),
   mockUsers: () => json<MockAuthUser[]>("/api/auth/mock-users"),
   mockLogin: (username: string) =>
@@ -31,6 +43,7 @@ export const api = {
   logout: () =>
     json<void>("/api/auth/logout", { method: "POST" }),
   dates: () => json<string[]>("/api/asofdates"),
+  // Snapshot-scoped reads. Query keys in App.tsx must contain the same context.
   versions: (d: string) => json<string[]>(`/api/versions?asofdate=${d}`),
   trades: (c: Context, q: string, fo: string, page: number) =>
     json<{ items: Trade[]; total: number }>(
@@ -50,6 +63,7 @@ export const api = {
       `/api/adjustments/history?asofdate=${encodeURIComponent(asofdate)}&asofdateflow=${encodeURIComponent(asofdateflow)}`,
     ),
   mappedFields: () => json<MappedField[]>("/api/mappings/fields"),
+  // Mapping endpoints read manifest-selected Parquet; the browser never reads S3.
   mappingValues: (field: string, search = "") =>
     json<{ field: MappedField; values: string[] }>(
       `/api/mappings/values?field=${encodeURIComponent(field)}&search=${encodeURIComponent(search)}`,
@@ -132,6 +146,7 @@ export const api = {
     rowVersion: string,
     key: string,
   ) =>
+    // expectedVersion protects against stale previews; key protects retries.
     post<{
       adjustmentBatchId: string;
       status: string;

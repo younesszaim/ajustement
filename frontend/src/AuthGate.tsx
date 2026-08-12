@@ -5,6 +5,9 @@ import { App } from "./App";
 import type { AuthUser } from "./types";
 
 export function AuthGate() {
+  // Session lookup happens before App mounts, preventing protected queries from
+  // briefly running as an anonymous user. Mock identities are fetched only
+  // after session lookup fails and exist only when AUTH_MODE=mock.
   const queryClient = useQueryClient();
   const session = useQuery({
     queryKey: ["auth", "me"],

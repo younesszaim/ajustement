@@ -1,9 +1,11 @@
+/** Stable API types. Keep these aligned with FastAPI response JSON. */
 export type RecordType =
   | "BASE"
   | "ADJUSTMENT_CANCEL"
   | "ADJUSTMENT_REPLACEMENT"
   | "PROXY";
 export interface Context {
+  /** Business snapshot date plus its exact LiMon processing/version timestamp. */
   asofdate: string;
   asofdateflow: string;
 }
@@ -57,6 +59,7 @@ export interface Difference {
   delta?: number;
 }
 export interface Preview {
+  /** The three-row journal shown before any durable database write. */
   operationType?: "ADJUSTMENT" | "TRADE_CANCELLATION" | "PROXY";
   original: Trade | null;
   cancellation: Trade | null;

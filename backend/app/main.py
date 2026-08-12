@@ -1,3 +1,11 @@
+"""FastAPI composition root and HTTP boundary.
+
+Endpoints in this module stay intentionally thin: authenticate, validate the
+Pydantic request, call a domain service/repository, audit relevant reads, and
+translate known failures to HTTP status codes. Business row construction must
+remain in ``services.py`` so preview, single commit and batch commit share it.
+"""
+
 import os
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
@@ -38,7 +46,22 @@ from .mappings import build_mapping_provider
 
 load_dotenv()
 storage_mode = os.getenv("STORAGE_MODE", "supabase").lower()
-app = FastAPI(title="LiMon Adjustment Manager API", version="0.1.0")
+app = FastAPI(
+    title="LiMon Adjustment Manager API",
+    version="0.1.0",
+    description=(
+        "Version-scoped LiMon trade adjustments. Start with **Authentication**, "
+        "then select a snapshot and use preview before commit. See "
+        "`docs/api-testing-guide.md` for complete executable examples."
+    ),
+    openapi_tags=[
+        {"name": "Authentication", "description": "Mock SSO session lifecycle."},
+        {"name": "Snapshots and trades", "description": "Read one LiMon as-of date and version."},
+        {"name": "Mappings", "description": "Controlled values read from manifest-selected Parquet."},
+        {"name": "Adjustments", "description": "Impact, preview and durable business writes."},
+        {"name": "Operations", "description": "Technical health and hybrid reconciliation."},
+    ],
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -65,6 +88,7 @@ def audit(event, metadata, identity, context=None, row_id=None):
 
 
 def fail(exc):
+    """Translate internal failures without leaking storage implementation details."""
     status = (
         503
         if isinstance(exc, InfrastructureError)
@@ -75,7 +99,7 @@ def fail(exc):
     raise HTTPException(status, str(exc))
 
 
-@app.get("/api/auth/mock-users")
+@app.get("/api/auth/mock-users", tags=["Authentication"])
 def mock_users():
     if auth_mode() != "mock":
         raise HTTPException(404, "Mock login is disabled.")
@@ -85,22 +109,22 @@ def mock_users():
     ]
 
 
-@app.post("/api/auth/mock-login")
+@app.post("/api/auth/mock-login", tags=["Authentication"])
 def mock_login(req: MockLoginRequest, response: Response):
     return create_mock_session(response, req.username).public()
 
 
-@app.get("/api/auth/me")
+@app.get("/api/auth/me", tags=["Authentication"])
 def authenticated_user(request: Request):
     return current_identity(request).public()
 
 
-@app.post("/api/auth/logout", status_code=204)
+@app.post("/api/auth/logout", status_code=204, tags=["Authentication"])
 def logout(response: Response):
     clear_session(response)
 
 
-@app.get("/api/health")
+@app.get("/api/health", tags=["Operations"])
 def health(identity=Depends(require(TECHNICAL_ADMIN))):
     result = {
         "status": "ok",
@@ -116,19 +140,19 @@ def health(identity=Depends(require(TECHNICAL_ADMIN))):
     return result
 
 
-@app.get("/api/asofdates")
+@app.get("/api/asofdates", tags=["Snapshots and trades"])
 def dates(identity=Depends(require(READ))):
     return repo.asofdates()
 
 
-@app.get("/api/versions")
+@app.get("/api/versions", tags=["Snapshots and trades"])
 def versions(asofdate: str, identity=Depends(require(READ))):
     result = repo.versions(asofdate)
     audit("DATE_SELECTED", {"asofdate": asofdate, "availableVersions": len(result)}, identity)
     return result
 
 
-@app.get("/api/trades")
+@app.get("/api/trades", tags=["Snapshots and trades"])
 def trades(
     asofdate: str,
     asofdateflow: str,
@@ -138,6 +162,12 @@ def trades(
     pageSize: int = Query(10, ge=1, le=100),
     identity=Depends(require(READ)),
 ):
+    """Search only within one immutable LiMon snapshot version.
+
+    Example: ``/api/trades?asofdate=2026-08-06&asofdateflow=...&search=OT-98&foSystem=Orchestrade``.
+    Full-snapshot reads are deliberately not exposed because production output
+    contains too many rows for an interactive UI.
+    """
     try:
         context = LimonContext(asofdate=asofdate, asofdateflow=asofdateflow)
         items, total = repo.search(context, search, foSystem, page, pageSize)
@@ -152,7 +182,7 @@ def trades(
         fail(exc)
 
 
-@app.get("/api/trades/{row_id}")
+@app.get("/api/trades/{row_id}", tags=["Snapshots and trades"])
 def detail(
     row_id: str,
     asofdate: str,
@@ -172,12 +202,12 @@ def detail(
         fail(exc)
 
 
-@app.get("/api/trades/{row_id}/history")
+@app.get("/api/trades/{row_id}/history", tags=["Snapshots and trades"])
 def history(row_id: str, identity=Depends(require(READ))):
     return repo.get_history(row_id)
 
 
-@app.get("/api/trades/{row_id}/lineage")
+@app.get("/api/trades/{row_id}/lineage", tags=["Snapshots and trades"])
 def lineage(
     row_id: str,
     asofdate: str,
@@ -192,7 +222,7 @@ def lineage(
         fail(exc)
 
 
-@app.get("/api/adjustments/history")
+@app.get("/api/adjustments/history", tags=["Adjustments"])
 def global_history(
     asofdate: str = "",
     asofdateflow: str = "",
@@ -201,12 +231,12 @@ def global_history(
     return repo.get_global_history(asofdate, asofdateflow)
 
 
-@app.get("/api/mappings/fields")
+@app.get("/api/mappings/fields", tags=["Mappings"])
 def mapped_fields(identity=Depends(require(READ))):
     return mapping_provider.fields()
 
 
-@app.get("/api/mappings/values")
+@app.get("/api/mappings/values", tags=["Mappings"])
 def mapping_values(
     field: str,
     search: str = "",
@@ -219,7 +249,7 @@ def mapping_values(
         fail(exc)
 
 
-@app.get("/api/mappings/{mapping_name}/rows")
+@app.get("/api/mappings/{mapping_name}/rows", tags=["Mappings"])
 def mapping_rows(
     mapping_name: str,
     search: str = "",
@@ -233,12 +263,12 @@ def mapping_rows(
         fail(exc)
 
 
-@app.post("/api/adjustments/impact")
+@app.post("/api/adjustments/impact", tags=["Adjustments"])
 def impact(req: AdjustmentRequest, identity=Depends(require(PREVIEW))):
     return {"impactedStages": service.resolver.resolve(set(req.changes))}
 
 
-@app.post("/api/adjustments/preview")
+@app.post("/api/adjustments/preview", tags=["Adjustments"])
 def preview(req: AdjustmentRequest, identity=Depends(require(PREVIEW))):
     try:
         result = service.preview(req.context, req.rowId, req.changes)
@@ -257,7 +287,7 @@ def preview(req: AdjustmentRequest, identity=Depends(require(PREVIEW))):
         fail(exc)
 
 
-@app.post("/api/adjustments/cancel/preview")
+@app.post("/api/adjustments/cancel/preview", tags=["Adjustments"])
 def cancel_preview(req: CancelTradeRequest, identity=Depends(require(PREVIEW))):
     try:
         return service.preview_cancellation(req.context, req.rowId)
@@ -265,7 +295,7 @@ def cancel_preview(req: CancelTradeRequest, identity=Depends(require(PREVIEW))):
         fail(exc)
 
 
-@app.post("/api/adjustments/cancel/commit")
+@app.post("/api/adjustments/cancel/commit", tags=["Adjustments"])
 def cancel_commit(
     req: CancelTradeCommitRequest,
     identity=Depends(require(BUSINESS_WRITE)),
@@ -276,7 +306,7 @@ def cancel_commit(
         fail(exc)
 
 
-@app.post("/api/adjustments/proxy/preview")
+@app.post("/api/adjustments/proxy/preview", tags=["Adjustments"])
 def proxy_preview(req: ProxyPreviewRequest, identity=Depends(require(PREVIEW))):
     try:
         return service.preview_proxy(req.context, req.draftId, req.fields)
@@ -284,7 +314,7 @@ def proxy_preview(req: ProxyPreviewRequest, identity=Depends(require(PREVIEW))):
         fail(exc)
 
 
-@app.post("/api/adjustments/proxy/commit")
+@app.post("/api/adjustments/proxy/commit", tags=["Adjustments"])
 def proxy_commit(
     req: ProxyCommitRequest,
     identity=Depends(require(BUSINESS_WRITE)),
@@ -295,7 +325,7 @@ def proxy_commit(
         fail(exc)
 
 
-@app.post("/api/adjustments/commit")
+@app.post("/api/adjustments/commit", tags=["Adjustments"])
 def commit(req: CommitRequest, identity=Depends(require(BUSINESS_WRITE))):
     try:
         return service.commit(req, identity.email)
@@ -303,7 +333,7 @@ def commit(req: CommitRequest, identity=Depends(require(BUSINESS_WRITE))):
         fail(exc)
 
 
-@app.post("/api/adjustments/batch/commit")
+@app.post("/api/adjustments/batch/commit", tags=["Adjustments"])
 def batch_commit(
     req: BatchCommitRequest,
     identity=Depends(require(BUSINESS_WRITE)),
@@ -314,7 +344,7 @@ def batch_commit(
         fail(exc)
 
 
-@app.post("/api/adjustments/batch/preview")
+@app.post("/api/adjustments/batch/preview", tags=["Adjustments"])
 def batch_preview(req: BatchPreviewRequest, identity=Depends(require(PREVIEW))):
     try:
         result = service.preview_batch(req.context, req.items)
@@ -333,7 +363,7 @@ def batch_preview(req: BatchPreviewRequest, identity=Depends(require(PREVIEW))):
         fail(exc)
 
 
-@app.post("/api/adjustments/{batch_id}/revert")
+@app.post("/api/adjustments/{batch_id}/revert", tags=["Adjustments"])
 def revert_adjustment(
     batch_id: str,
     req: RevertAdjustmentRequest,
@@ -345,7 +375,7 @@ def revert_adjustment(
         fail(exc)
 
 
-@app.post("/api/adjustments/{batch_reference}/reconcile")
+@app.post("/api/adjustments/{batch_reference}/reconcile", tags=["Operations"])
 def reconcile_adjustment(
     batch_reference: str,
     identity=Depends(require(TECHNICAL_ADMIN)),

@@ -46,6 +46,9 @@ npm run dev
 
 Open `http://localhost:5173`. The API is at `http://localhost:8000/docs`.
 
+For ready-to-use Swagger and `curl` examples for every route, see
+[docs/api-testing-guide.md](docs/api-testing-guide.md).
+
 Local development uses mock SSO by default. Choose one of four identities on
 the login page: reader, functional administrator, technical administrator, or
 an authenticated user without application access. Sessions are signed and
@@ -237,4 +240,364 @@ Before production enablement, map domain fields to the reviewed schema, implemen
 
 ## Security model
 
-The backend whitelist is the authorization boundary for editable fields. Calculated fields are rejected even if a caller bypasses the UI. Authentication is pluggable for SSO/reverse-proxy identity; the MVP assumes `VIEWER`, `ADJUSTER`, and `ADMIN` roles and exposes local development as an adjuster.
+The backend whitelist is the authorization boundary for editable fields.
+Calculated fields are rejected even if a caller bypasses the UI. Authentication
+is pluggable for the future CACIB SSO identity, while the internal application
+roles remain `reader`, `functional_admin`, and `technical_admin`. Mock identities
+exist only when `AUTH_MODE=mock`; authorization is always enforced by FastAPI,
+not only by hidden frontend buttons.
+
+## Developer onboarding guide
+
+This section explains how the browser, API, calculation layer, Vertica output,
+PostgreSQL metadata, Parquet mappings, and recovery process communicate. Read it
+before changing an endpoint or adding an adjustment type.
+
+### Source-code map
+
+| Area | Responsibility | Start here |
+|---|---|---|
+| API composition | Creates dependencies, authorizes endpoints and translates domain errors to HTTP | `backend/app/main.py` |
+| Request schemas | Validates HTTP request bodies and shared snapshot context | `backend/app/models.py` |
+| Business workflow | Preview, commit, cancellation, proxy, batch and revert rules | `backend/app/services.py` |
+| Calculation graph | Editable fields, additive measures and stage dependencies | `backend/app/config.py` |
+| Mapping rules | Maps adjustable fields to Parquet outputs and downstream stages | `backend/app/mapping_config.py` |
+| Mapping data | Resolves the latest Parquet path, searches rows and validates values | `backend/app/mappings.py` |
+| Runtime selection | Selects Supabase, hybrid simulation or production hybrid repositories | `backend/app/storage.py` |
+| Hybrid coordinator | Coordinates output writes and metadata without a distributed transaction | `backend/app/adapters/hybrid_adjustment_repository.py` |
+| Simulated Vertica | Implements output behavior in the `vertica_sim` PostgreSQL schema | `backend/app/adapters/postgres_vertica_simulator.py` |
+| Simulation audit | Stores requests, batches, snapshots and actions in `adjustment_meta` | `backend/app/adapters/postgres_simulation_audit_repository.py` |
+| Real Vertica boundary | Minimal adapter for the production output database | `backend/app/adapters/vertica_repository.py` |
+| Frontend orchestration | Queries, mutations, workspace state and dialogs | `frontend/src/App.tsx` |
+| API client | The browser's typed REST boundary | `frontend/src/api.ts` |
+| Shared UI types | API response and request shapes used by React | `frontend/src/types.ts` |
+| Authentication UI | Mock login and session bootstrap | `frontend/src/AuthGate.tsx` |
+
+### Communication levels
+
+The application deliberately separates five communication levels:
+
+1. **Browser state:** React owns temporary selections, drafts, previews and
+   dialogs. Refreshing the page removes drafts but never committed data.
+2. **HTTP API:** FastAPI authenticates the session, validates payloads and
+   returns stable JSON shapes. The frontend never connects to a database.
+3. **Domain service:** `AdjustmentService` applies business invariants and
+   creates the rows that an operation would write.
+4. **Repository boundary:** repositories hide whether output and metadata live
+   in one PostgreSQL database, two simulated schemas, or Vertica + PostgreSQL.
+5. **Physical storage:** output rows feed Power BI; metadata rows provide audit,
+   idempotency, recovery and history.
+
+```mermaid
+flowchart LR
+    User["User"] --> UI["React workspace"]
+    UI -->|"JSON + session cookie"| API["FastAPI endpoints"]
+    API --> Domain["AdjustmentService"]
+    Domain --> Calc["LiMon calculation adapter"]
+    Domain --> Map["Manifest + Parquet mappings"]
+    Domain --> Repo["Repository interface"]
+    Repo --> Output["Vertica output rows"]
+    Repo --> Meta["PostgreSQL audit metadata"]
+    Output --> BI["Power BI"]
+```
+
+### Snapshot selection and trade search
+
+Every business read is scoped by the pair `asofdate` + `asofdateflow`. The date
+identifies the reporting snapshot and the flow identifies its version. Never
+query a trade using the date alone.
+
+```mermaid
+sequenceDiagram
+    actor U as User
+    participant UI as React
+    participant API as FastAPI
+    participant R as Output repository
+    participant A as Audit repository
+
+    U->>UI: Select as-of date
+    UI->>API: GET /api/versions?asofdate=...
+    API->>R: versions(asofdate)
+    R-->>API: available flows
+    API->>A: DATE_SELECTED event
+    API-->>UI: flow list
+    U->>UI: Select flow, Trade and FO system
+    UI->>API: GET /api/trades?...search=...&foSystem=...
+    API->>R: paginated lineage search
+    R-->>API: original, reversal and replacement rows
+    API-->>UI: only matching rows
+    U->>UI: Open a row
+    UI->>API: GET detail + lineage
+    API->>R: read detail and complete lineage
+    R-->>UI: active status and all associated rows
+```
+
+Search is mandatory because a LiMon snapshot can contain millions of rows. The
+UI must not request or render an entire snapshot. A cancelled trade remains
+readable for audit, but `get_effective_trade` rejects it for new writes because
+it has no active business row.
+
+### Standard adjustment preview and commit
+
+Preview and commit intentionally call the same row-building rules. Preview is
+read-only; commit re-reads the authoritative row and checks its version before
+writing.
+
+```mermaid
+sequenceDiagram
+    actor U as Functional administrator
+    participant UI as React
+    participant API as FastAPI
+    participant S as AdjustmentService
+    participant M as Parquet mappings
+    participant C as Calculation adapter
+    participant O as Vertica output
+    participant P as PostgreSQL metadata
+
+    U->>UI: Change authorized fields
+    UI->>API: POST /api/adjustments/impact
+    API-->>UI: impacted calculation stages
+    U->>UI: Run preview
+    UI->>API: POST /api/adjustments/preview
+    API->>S: preview(context, rowId, changes)
+    S->>O: read effective row
+    S->>M: validate controlled values
+    S->>S: build negative reversal
+    S->>C: recalculate affected downstream stages
+    C-->>S: adjusted row and calculated fields
+    S-->>UI: original + reversal + replacement + rowVersion
+    U->>UI: Apply adjustment with reason
+    UI->>API: POST /api/adjustments/commit + idempotencyKey
+    API->>S: commit(request, authenticated email)
+    S->>O: re-read effective row
+    S->>S: compare expectedVersion
+    S->>P: reserve idempotent request
+    S->>O: append reversal and replacement
+    S->>P: store batch, snapshots, changes and mapping references
+    API-->>UI: batch ID and COMMITTED status
+    UI->>API: refresh detail, lineage and history
+```
+
+Example preview request:
+
+```json
+{
+  "context": {
+    "asofdate": "2026-08-06",
+    "asofdateflow": "2026-08-07T11:14:09"
+  },
+  "rowId": "SIM-ROW-0001",
+  "changes": {
+    "amount": 1250000,
+    "exposureClass": "SOVEREIGN"
+  }
+}
+```
+
+Example commit adds concurrency and retry protection:
+
+```json
+{
+  "context": {
+    "asofdate": "2026-08-06",
+    "asofdateflow": "2026-08-07T11:14:09"
+  },
+  "rowId": "SIM-ROW-0001",
+  "changes": {
+    "amount": 1250000,
+    "exposureClass": "SOVEREIGN"
+  },
+  "reason": "Correct exposure classification after source review",
+  "expectedVersion": "<hash returned by preview>",
+  "idempotencyKey": "<one UUID reused for retries>"
+}
+```
+
+### Why reversal and replacement rows are written
+
+The output table is append-only because it feeds Power BI and must remain
+auditable. For every additive measure `x`:
+
+```text
+BASE.x + ADJUSTMENT_CANCEL.x = BASE.x + (-BASE.x) = 0
+0 + ADJUSTMENT_REPLACEMENT.x = corrected business value
+```
+
+Power BI can therefore aggregate all record types and obtain the corrected
+total. Users who want only unadjusted source rows can filter `record_type =
+'BASE'`. Never update or delete an output row to implement a business action.
+
+### Mapping-assisted selection
+
+`mapping_config.py` answers *which mapping and calculation stages belong to a
+field*. `latest_mappings.json` answers *where the latest Parquet is*. The
+Parquet file answers *which values and mapping rows exist*.
+
+```mermaid
+sequenceDiagram
+    participant UI as Mapping selector
+    participant API as Mapping endpoints
+    participant CFG as mapping_config.py
+    participant J as latest_mappings.json
+    participant PQ as Parquet local/S3
+
+    UI->>API: GET /api/mappings/fields
+    API->>CFG: controlled field definitions
+    API->>J: resolve mapping name
+    API-->>UI: labels, columns and resolved source
+    UI->>API: GET /api/mappings/values?field=exposureClass
+    API->>PQ: read output column
+    PQ-->>API: mapping rows
+    API-->>UI: sorted distinct values
+    UI->>API: GET /api/mappings/{name}/rows?page=1
+    API-->>UI: searchable paginated rows
+```
+
+When adding a controlled field:
+
+1. Add it to `EDITABLE_FIELDS`.
+2. Add one entry to `MAPPING_FIELDS` with its mapping name, output column,
+   producer stage and downstream stages.
+3. Add the mapping name and immutable Parquet path to the JSON manifest.
+4. Add provider and service tests.
+5. Confirm the exact resolved path appears in committed audit metadata.
+
+### Direct cancellation
+
+Cancellation is a commit operation, not a destructive delete and not a normal
+modification preview. The UI silently obtains the current row version, asks for
+a reason, and commits one negative reversal row.
+
+```text
+BASE (active) → ADJUSTMENT_CANCEL (negative) → no active business row
+```
+
+The cancelled trade remains searchable and its lineage remains visible. A new
+adjustment is forbidden until the cancellation is reverted.
+
+### Proxy trade
+
+A proxy creates a new business row without an original or reversal. The user
+provides business characteristics; the backend generates the trade number and
+the output adapter generates the physical record ID.
+
+```text
+User fields + context + draft ID
+              ↓
+        preview calculation
+              ↓
+PROXY-YYYYMMDD-XXXXXXXX + output_record_id
+              ↓
+       one append-only PROXY row
+```
+
+The draft ID makes preview output stable, while the idempotency key prevents a
+double commit if the browser retries.
+
+### Batch adjustment
+
+A batch contains multiple standard adjustments for the same snapshot context.
+Each item retains its own preview version. The batch preview aggregates changed
+trades, output row count, stages and numeric deltas. Commit fails if any item is
+stale; it must never partially accept a business batch.
+
+### Revert workflow
+
+Revert is another append-only adjustment linked to the batch being undone. It
+does not delete the original commit. The register pairs the original commit and
+its revert so users can distinguish `COMMITTED` from `REVERTED` actions.
+
+```mermaid
+sequenceDiagram
+    actor U as Functional administrator
+    participant UI as History/Register
+    participant API as FastAPI
+    participant S as AdjustmentService
+    participant O as Output
+    participant P as Metadata
+
+    U->>UI: Revert adjustment + reason
+    UI->>API: POST /api/adjustments/{batch}/revert
+    API->>S: validate target and current lineage
+    S->>O: append rows restoring prior business effect
+    S->>P: create REVERT batch linked to original batch
+    API-->>UI: new audit batch ID
+    UI->>API: refresh register and lineage
+```
+
+### Hybrid commit, failure and reconciliation
+
+Vertica and PostgreSQL cannot share one ACID transaction. The hybrid repository
+therefore uses a recoverable coordinator protocol:
+
+1. Reserve the idempotency key in PostgreSQL.
+2. Build and store the intended immutable snapshot.
+3. Commit output rows in Vertica, including `adjustment_reference`.
+4. Finalize PostgreSQL metadata as `COMMITTED`.
+5. If step 4 fails after Vertica commits, mark the request
+   `RECONCILIATION_REQUIRED`.
+
+`RECONCILIATION_REQUIRED` means the business output already exists, but its
+metadata finalization is incomplete. Retrying reconciliation searches Vertica
+by the stable adjustment reference and completes metadata without inserting
+duplicate output rows. A business revert is enabled only after reconciliation
+has reconstructed a complete committed batch.
+
+### Idempotency, optimistic concurrency and errors
+
+- **Idempotency key:** one UUID per user commit intention. Reuse it when a
+  request is retried after a timeout; generate a new one after the user changes
+  the draft.
+- **Row version:** SHA-256 of stable effective-row content. Commit returns HTTP
+  `409` when the row changed after preview.
+- **Domain error:** invalid value, forbidden field or inactive trade; returned
+  as `422`.
+- **Conflict:** stale version or incompatible current state; returned as `409`.
+- **Infrastructure error:** storage or coordination failure; returned as `503`.
+- **Authentication/authorization:** missing session or permission; returned as
+  `401` or `403`.
+
+The frontend catches every failed mutation and displays the backend `detail`
+message in the application notice. It must not report success until the API
+returns a successful commit response.
+
+### Backend extension checklist
+
+For a new adjustment type:
+
+1. Add a Pydantic request model.
+2. Add preview/commit methods in `AdjustmentService`.
+3. Keep output construction deterministic and append-only.
+4. Add repository methods only when existing generic commit methods cannot
+   represent the operation.
+5. Add an authenticated endpoint with the narrowest permission.
+6. Persist action type, snapshots, user, reason and idempotency reference.
+7. Add domain tests, authorization tests and failure/retry tests.
+8. Add typed frontend API methods and response types.
+9. Invalidate the affected React Query caches after success.
+
+### Frontend state and cache rules
+
+- React component state holds drafts and open dialogs.
+- React Query owns server state such as dates, trades, lineage and history.
+- Query keys include every server-side scope value (`asofdate`, flow, row ID,
+  filters and page).
+- A successful write calls `invalidateQueries()` so active views re-read the
+  authoritative backend state.
+- `singleCommitKey`, `batchCommitKey` and `revertCommitKey` are refs because a
+  rerender must not create a new retry identity.
+- Changing a draft clears its prior preview and idempotency key.
+
+### Tests expected before a pull request
+
+```bash
+cd backend
+../.venv/bin/pytest -q
+
+cd ../frontend
+npm run build
+```
+
+For storage or reconciliation changes, also run the hybrid verification script
+against the simulation schemas. Never run integration verification against a
+production Vertica table.
