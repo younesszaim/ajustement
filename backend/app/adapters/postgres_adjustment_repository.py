@@ -9,6 +9,7 @@ import json, os
 from typing import Any
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
+from ..data_dictionary import FIELDS
 from ..services import DomainError, row_version
 
 
@@ -54,13 +55,9 @@ class PostgresAdjustmentRepository:
                 "_rowVersion": row["row_version"],
             }
         )
-        for db, key in [
-            ("amount", "amount"),
-            ("currency", "currency"),
-            ("lcr_inflow", "lcrInflow"),
-            ("lcr_outflow", "lcrOutflow"),
-            ("reserve_amount", "reserve"),
-        ]:
+        for semantic_id in ("amount", "currency", "lcr_inflow", "lcr_outflow", "reserve"):
+            definition = FIELDS.field(semantic_id)
+            db, key = definition.db, definition.api
             if row.get(db) is not None:
                 payload[key] = (
                     float(row[db]) if isinstance(row[db], Decimal) else row[db]
@@ -103,13 +100,11 @@ class PostgresAdjustmentRepository:
     def batch_search(self, context, fo_system, filters, page, page_size):
         """Translate only reviewed domain filters into parameterized SQL."""
         payload_fields = {
-            "portfolio": "portfolio",
-            "counterparty": "counterparty",
-            "isin": "isin",
-            "targetInstrumentType": "targetInstrumentType",
-            "exposureClass": "exposureClass",
-            "hqlaLevel": "hqlaLevel",
-            "reportingLineLcr": "reportingLineLcr",
+            FIELDS.api(name): FIELDS.api(name)
+            for name in (
+                "portfolio", "counterparty", "isin", "target_instrument_type",
+                "exposure_class", "hqla_level", "reporting_line_lcr",
+            )
         }
         clauses = [
             "project_id=%s", "asofdate=%s", "asofdateflow=%s", "fo_system=%s"
@@ -129,10 +124,10 @@ class PostgresAdjustmentRepository:
                     clauses.append(f"row_payload ->> '{payload_key}' ILIKE %s")
                     params.append(f"%{filters[field]}%")
             if filters.get("maturityDateFrom"):
-                clauses.append("(row_payload ->> 'maturityDate')::date >= %s")
+                clauses.append(f"(row_payload ->> '{FIELDS.api('maturity_date')}')::date >= %s")
                 params.append(filters["maturityDateFrom"])
             if filters.get("maturityDateTo"):
-                clauses.append("(row_payload ->> 'maturityDate')::date <= %s")
+                clauses.append(f"(row_payload ->> '{FIELDS.api('maturity_date')}')::date <= %s")
                 params.append(filters["maturityDateTo"])
             if filters.get("amountMin") not in (None, ""):
                 clauses.append("amount >= %s")
@@ -608,5 +603,5 @@ def connection_from_environment():
 
     url = os.environ.get("SUPABASE_DB_URL")
     if not url:
-        raise RuntimeError("SUPABASE_DB_URL is required when USE_MOCK_DATA=false")
+        raise RuntimeError("SUPABASE_DB_URL is required for STORAGE_MODE=supabase")
     return psycopg.connect(url, connect_timeout=10, row_factory=dict_row)

@@ -19,6 +19,7 @@ from app.adapters.postgres_vertica_simulator import (
 )
 from app.models import CommitRequest, LimonContext
 from app.services import AdjustmentService, InfrastructureError
+from app.mappings import build_mapping_provider
 
 HOST = "db.szozfcqawdkfzugwrzdh.supabase.co"
 IDEMPOTENCY_KEY = "hybrid-sim-recovery-verification-v2"
@@ -42,7 +43,7 @@ def main():
     output = PostgresVerticaSimulatorRepository(connection)
     audit = PostgresSimulationAuditRepository(connection)
     repository = HybridAdjustmentRepository(output, audit, "limon_ldp_bmf")
-    service = AdjustmentService(repository)
+    service = AdjustmentService(repository, build_mapping_provider())
 
     existing = repository.get_idempotent(IDEMPOTENCY_KEY)
     if existing:

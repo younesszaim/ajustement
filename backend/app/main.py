@@ -7,9 +7,17 @@ remain in ``services.py`` so preview, single commit and batch commit share it.
 """
 
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+import psycopg
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+PROJECT_DIR = BACKEND_DIR.parent
+load_dotenv(PROJECT_DIR / ".env")
+load_dotenv(BACKEND_DIR / ".env")
 from .models import (
     AdjustmentRequest,
     CommitRequest,
@@ -46,7 +54,6 @@ from .auth import (
 from .mappings import build_mapping_provider
 from .config import BATCH_FILTER_FIELDS
 
-load_dotenv()
 storage_mode = os.getenv("STORAGE_MODE", "supabase").lower()
 app = FastAPI(
     title="LiMon Adjustment Manager API",
@@ -81,6 +88,32 @@ app.add_middleware(
 repo = build_repository()
 mapping_provider = build_mapping_provider()
 service = AdjustmentService(repo, mapping_provider)
+
+
+@app.exception_handler(RuntimeError)
+def runtime_configuration_error(_request: Request, exc: RuntimeError):
+    return JSONResponse(
+        status_code=503,
+        content={"detail": str(exc), "code": "BACKEND_CONFIGURATION_ERROR"},
+    )
+
+
+@app.exception_handler(psycopg.Error)
+def database_connection_error(_request: Request, exc: psycopg.Error):
+    message = str(exc).casefold()
+    if "password authentication failed" in message:
+        code, detail = "DATABASE_AUTHENTICATION_FAILED", "PostgreSQL rejected the configured user or password."
+    elif any(value in message for value in ("could not translate host name", "name or service not known", "nodename nor servname provided")):
+        code, detail = "DATABASE_HOST_NOT_FOUND", "The PostgreSQL hostname cannot be resolved."
+    elif any(value in message for value in ("network is unreachable", "no route to host")):
+        code, detail = "DATABASE_NETWORK_UNREACHABLE", "The PostgreSQL host resolved, but this machine has no network route to it."
+    elif "timeout" in message or "timed out" in message:
+        code, detail = "DATABASE_CONNECTION_TIMEOUT", "The PostgreSQL connection timed out."
+    elif "connection refused" in message:
+        code, detail = "DATABASE_CONNECTION_REFUSED", "The PostgreSQL host refused the connection."
+    else:
+        code, detail = "DATA_STORE_UNAVAILABLE", "The configured data store is unavailable. Check the backend database URL and connectivity."
+    return JSONResponse(status_code=503, content={"detail": detail, "code": code, "databaseSqlState": exc.sqlstate})
 
 
 def audit(event, metadata, identity, context=None, row_id=None):

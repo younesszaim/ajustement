@@ -58,6 +58,16 @@ class ParquetMappingProvider:
                 ) from exc
         return self._table_cache[resolved]
 
+    def parameter_table(self, mapping_name):
+        """Return a mapping as a DataFrame for the calculation pipeline.
+
+        Enrichment functions deliberately receive their parameter table as an
+        argument: they never know whether it came from local disk, S3 or a test
+        fixture.  Only this provider resolves the manifest and reads Parquet.
+        """
+        source = self._source(mapping_name)
+        return self._table(source).to_pandas(), source
+
     def fields(self):
         return sorted(
             (self.field(field_name) for field_name in self.field_config),
@@ -148,5 +158,10 @@ class ParquetMappingProvider:
 
 
 def build_mapping_provider():
-    manifest = os.getenv("MAPPING_MANIFEST_PATH", str(DEFAULT_MANIFEST))
+    configured = os.getenv("MAPPING_MANIFEST_PATH")
+    manifest = Path(configured).expanduser() if configured else DEFAULT_MANIFEST
+    if not manifest.is_absolute():
+        # Environment examples use a backend-relative path. Do not make it
+        # depend on whether Uvicorn was launched from backend/ or project root.
+        manifest = Path(__file__).parents[1] / manifest
     return ParquetMappingProvider(manifest)

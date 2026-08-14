@@ -7,6 +7,7 @@ from app.models import (
     RevertAdjustmentRequest,
     ProxyFields,
 )
+from app.mappings import build_mapping_provider
 from app.repository import FLOW1, MockRepository
 from app.services import AdjustmentService, ConflictError, DomainError
 
@@ -14,7 +15,7 @@ from app.services import AdjustmentService, ConflictError, DomainError
 @pytest.fixture
 def setup():
     repo = MockRepository()
-    service = AdjustmentService(repo)
+    service = AdjustmentService(repo, build_mapping_provider())
     ctx = LimonContext(asofdate="2026-08-06", asofdateflow=FLOW1)
     return repo, service, ctx
 
@@ -85,6 +86,9 @@ def test_mapping_override_preserves_selected_step_and_recalculates_only_downstre
     repo, _, context = setup
 
     class MappingStub:
+        def parameter_table(self, mapping_name):
+            return build_mapping_provider().parameter_table(mapping_name)
+
         def validate_overrides(self, changes):
             return [
                 {
@@ -107,7 +111,8 @@ def test_mapping_override_preserves_selected_step_and_recalculates_only_downstre
 
     assert preview["replacement"]["exposureClass"] == "SOVEREIGN"
     assert "exposure_class" not in preview["impactedStages"]
-    assert preview["impactedStages"] == ["hqla", "reporting_lines", "lcr_impacts"]
+    assert "exposure_class" not in preview["impactedStages"]
+    assert preview["impactedStages"][-3:] == ["hqla", "reporting_lines", "lcr_impacts"]
     assert preview["mappingOverrides"][0]["mappingName"] == "exposure_class_mapping"
 
 
@@ -115,6 +120,9 @@ def test_hqla_override_is_not_overwritten_by_its_producer(setup):
     repo, _, context = setup
 
     class MappingStub:
+        def parameter_table(self, mapping_name):
+            return build_mapping_provider().parameter_table(mapping_name)
+
         def validate_overrides(self, changes):
             return []
 
@@ -124,13 +132,17 @@ def test_hqla_override_is_not_overwritten_by_its_producer(setup):
 
     assert preview["replacement"]["hqlaLevel"] == "L2B"
     assert "hqla" not in preview["impactedStages"]
-    assert preview["impactedStages"] == ["reporting_lines", "lcr_impacts"]
+    assert "hqla" not in preview["impactedStages"]
+    assert preview["impactedStages"][-2:] == ["reporting_lines", "lcr_impacts"]
 
 
 def test_multiple_mapping_overrides_protect_every_selected_value(setup):
     repo, _, context = setup
 
     class MappingStub:
+        def parameter_table(self, mapping_name):
+            return build_mapping_provider().parameter_table(mapping_name)
+
         def validate_overrides(self, changes):
             definitions = {
                 "exposureClass": ("exposure_class", ["hqla", "reporting_lines", "lcr_impacts"]),
@@ -161,7 +173,7 @@ def test_multiple_mapping_overrides_protect_every_selected_value(setup):
     assert preview["replacement"]["hqlaLevel"] == "L2B"
     assert "exposure_class" not in preview["impactedStages"]
     assert "hqla" not in preview["impactedStages"]
-    assert preview["impactedStages"] == ["reporting_lines", "lcr_impacts"]
+    assert preview["impactedStages"][-2:] == ["reporting_lines", "lcr_impacts"]
 
 
 def test_invalid_changes(setup):

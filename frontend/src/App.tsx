@@ -31,6 +31,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { api } from "./api";
+import { fieldLabel, fields } from "./generated/fields";
 import type {
   BatchPreview,
   BatchTradeFilters,
@@ -60,22 +61,9 @@ const batchGridTheme = themeQuartz.withParams({
 });
 const fmt = (v: unknown) =>
   typeof v === "number" ? money.format(v) : String(v ?? "—");
-const labels: Record<string, string> = {
-  targetInstrumentType: "Instrument type",
-  issue: "Issue",
-  maturityDate: "Maturity date",
-  valueDate: "Value date",
-  amount: "Amount",
-  currency: "Currency",
-  counterparty: "Counterparty",
-  exposureClass: "Exposure class",
-  securityId: "Security ID",
-  reportingLineLcr: "Reporting line LCR",
-  eurAmount30d: "EUR amount 30D",
-  eurAmount3m: "EUR amount 3M",
-  lcrOutflow: "LCR outflow",
-  hqlaLevel: "HQLA",
-};
+const labels: Record<string, string> = Object.fromEntries(
+  Object.entries(fields).map(([name, definition]) => [name, definition.label]),
+);
 const editable = [
   ["targetInstrumentType", "select"],
   ["issue", "text"],
@@ -516,8 +504,8 @@ export function App({
   }, [trades.data?.items]);
   const searchGridColumns = useMemo<ColDef<Trade>[]>(
     () => [
-      { field: "tradeNo", headerName: "Trade", pinned: "left", minWidth: 140 },
-      { field: "foSystem", headerName: "FO system", minWidth: 120 },
+      { field: "tradeNo", headerName: fieldLabel("tradeNo"), pinned: "left", minWidth: 140 },
+      { field: "foSystem", headerName: fieldLabel("foSystem"), minWidth: 120 },
       {
         field: "lineageRole",
         headerName: "Associated row",
@@ -546,33 +534,33 @@ export function App({
           );
         },
       },
-      { field: "recordType", headerName: "Record type", minWidth: 190 },
+      { field: "recordType", headerName: fieldLabel("recordType"), minWidth: 190 },
       {
         field: "adjustmentBatchId",
-        headerName: "Adjustment batch",
+        headerName: fieldLabel("adjustmentBatchId"),
         minWidth: 210,
         valueFormatter: ({ value }) => value ?? "—",
       },
-      { field: "targetInstrumentType", headerName: "Instrument", minWidth: 125 },
-      { field: "isin", headerName: "ISIN", minWidth: 145 },
-      { field: "maturityDate", headerName: "Maturity", minWidth: 120 },
-      { field: "currency", headerName: "CCY", width: 85 },
+      { field: "targetInstrumentType", headerName: fieldLabel("targetInstrumentType"), minWidth: 125 },
+      { field: "isin", headerName: fieldLabel("isin"), minWidth: 145 },
+      { field: "maturityDate", headerName: fieldLabel("maturityDate"), minWidth: 120 },
+      { field: "currency", headerName: fieldLabel("currency"), width: 85 },
       {
         field: "amount",
-        headerName: "Row amount",
+        headerName: fieldLabel("amount"),
         filter: "agNumberColumnFilter",
         valueFormatter: ({ value }) => money.format(Number(value ?? 0)),
         minWidth: 130,
       },
       {
         field: "lcrOutflow",
-        headerName: "LCR outflow",
+        headerName: fieldLabel("lcrOutflow"),
         filter: "agNumberColumnFilter",
         valueFormatter: ({ value }) => money.format(Number(value ?? 0)),
         minWidth: 130,
       },
-      { field: "hqlaLevel", headerName: "HQLA", width: 95 },
-      { field: "reportingLineLcr", headerName: "LCR line", minWidth: 125 },
+      { field: "hqlaLevel", headerName: fieldLabel("hqlaLevel"), width: 95 },
+      { field: "reportingLineLcr", headerName: fieldLabel("reportingLineLcr"), minWidth: 125 },
     ],
     [],
   );
@@ -1932,22 +1920,22 @@ function BatchBuilderDialog({
 
   const columns = useMemo<ColDef<Trade>[]>(
     () => [
-      { field: "tradeNo", headerName: "Trade", pinned: "left", minWidth: 145 },
-      { field: "portfolio", headerName: "Portfolio" },
-      { field: "counterparty", headerName: "Counterparty", minWidth: 150 },
-      { field: "targetInstrumentType", headerName: "Instrument", minWidth: 130 },
-      { field: "isin", headerName: "ISIN", minWidth: 140 },
-      { field: "currency", headerName: "CCY", width: 90 },
+      { field: "tradeNo", headerName: fieldLabel("tradeNo"), pinned: "left", minWidth: 145 },
+      { field: "portfolio", headerName: fieldLabel("portfolio") },
+      { field: "counterparty", headerName: fieldLabel("counterparty"), minWidth: 150 },
+      { field: "targetInstrumentType", headerName: fieldLabel("targetInstrumentType"), minWidth: 130 },
+      { field: "isin", headerName: fieldLabel("isin"), minWidth: 140 },
+      { field: "currency", headerName: fieldLabel("currency"), width: 90 },
       {
         field: "amount",
-        headerName: "Amount",
+        headerName: fieldLabel("amount"),
         filter: "agNumberColumnFilter",
         valueFormatter: ({ value }) => money.format(Number(value ?? 0)),
         minWidth: 130,
       },
       {
         field: "maturityDate",
-        headerName: "Maturity",
+        headerName: fieldLabel("maturityDate"),
         minWidth: 125,
         filter: "agDateColumnFilter",
         filterParams: {
@@ -1958,9 +1946,9 @@ function BatchBuilderDialog({
           },
         },
       },
-      { field: "exposureClass", headerName: "Exposure class", minWidth: 145 },
-      { field: "hqlaLevel", headerName: "HQLA", width: 105 },
-      { field: "reportingLineLcr", headerName: "LCR line", minWidth: 125 },
+      { field: "exposureClass", headerName: fieldLabel("exposureClass"), minWidth: 145 },
+      { field: "hqlaLevel", headerName: fieldLabel("hqlaLevel"), width: 105 },
+      { field: "reportingLineLcr", headerName: fieldLabel("reportingLineLcr"), minWidth: 125 },
       {
         headerName: "Status",
         valueGetter: ({ data }) =>

@@ -14,12 +14,16 @@ from hashlib import sha256
 import json
 from typing import Any
 from uuid import UUID
+from lib.enrichments import DataFrameCalculationAdapter
+from lib.enrichments.contracts import EnrichmentError
 from .config import (
     ADDITIVE_MEASURES,
     EDITABLE_FIELDS,
     FIELD_DEPENDENCIES,
+    MAPPING_FIELDS,
     STAGE_DEPENDENCIES,
 )
+from .data_dictionary import FIELDS
 
 
 class DomainError(Exception):
@@ -58,6 +62,17 @@ class DependencyResolver:
                 if stage not in affected and deps & affected:
                     affected.add(stage)
                     changed = True
+        # A persisted output row does not have to expose every intermediate
+        # enrichment column. Rebuild all prerequisites required by affected
+        # stages so a downstream function never relies on stale/absent values.
+        changed = True
+        while changed:
+            expanded = set().union(
+                *(STAGE_DEPENDENCIES.get(stage, set()) for stage in affected)
+            )
+            missing = expanded - affected
+            changed = bool(missing)
+            affected.update(missing)
         ordered = []
         remaining = set(affected)
         while remaining:
@@ -71,62 +86,12 @@ class DependencyResolver:
         return ordered
 
 
-class MockCalculationAdapter:
-    """Deterministic demo only. Replace with the production LiMon Python adapter."""
-
-    def recalculate(
-        self, row: dict[str, Any], stages: list[str]
-    ) -> tuple[dict[str, Any], list[str]]:
-        out = deepcopy(row)
-        recalculated = []
-        amount = Decimal(str(out["amount"]))
-        if "eur_amount" in stages:
-            # TODO: replace with LiMon production FX calculation.
-            rate = Decimal("1") if out["currency"] == "EUR" else Decimal("0.92")
-            out["eurAmount0d"] = float(amount * rate)
-            recalculated += ["eurAmount0d"]
-        if "buckets" in stages:
-            maturity = datetime.fromisoformat(out["maturityDate"]).date()
-            base = datetime.fromisoformat(out["asofdate"]).date()
-            days = (maturity - base).days
-            for key in ["eurAmount7d", "eurAmount30d", "eurAmount3m"]:
-                out[key] = 0.0
-            bucket = (
-                "eurAmount7d"
-                if days <= 7
-                else "eurAmount30d"
-                if days <= 30
-                else "eurAmount3m"
-            )
-            out[bucket] = float(amount)
-            recalculated += ["eurAmount7d", "eurAmount30d", "eurAmount3m"]
-        if "exposure_class" in stages:
-            out["exposureClass"] = "FINANCIAL"
-            recalculated += ["exposureClass"]
-        if "hqla" in stages:
-            out["hqlaLevel"] = (
-                "L1" if out["targetInstrumentType"] == "SECURITY" else "NON_HQLA"
-            )
-            recalculated += ["hqlaLevel"]
-        if "reporting_lines" in stages:
-            days = (
-                datetime.fromisoformat(out["maturityDate"]).date()
-                - datetime.fromisoformat(out["asofdate"]).date()
-            ).days
-            out["reportingLineLcr"] = "RL_SEC_01" if days <= 30 else "RL_SEC_03"
-            recalculated += ["reportingLineLcr"]
-        if "lcr_impacts" in stages:
-            out["lcrOutflow"] = float(amount * Decimal(".2"))
-            recalculated += ["lcrOutflow", "lcrInflow"]
-        return out, list(dict.fromkeys(recalculated))
-
-
 class AdjustmentService:
     def __init__(self, repository, mapping_provider=None):
         self.repo = repository
         self.mappings = mapping_provider
         self.resolver = DependencyResolver()
-        self.calc = MockCalculationAdapter()
+        self.calc = DataFrameCalculationAdapter(mapping_provider)
 
     def _build(self, context, row_id, changes):
         """Build the authoritative preview journal for one standard adjustment.
@@ -158,8 +123,18 @@ class AdjustmentService:
         protected_producers = {
             override["producerStage"] for override in mapping_overrides
         }
+        # A user-selected controlled output is authoritative for its own step,
+        # even when prerequisite expansion discovers that producer again.
+        protected_producers.update(
+            MAPPING_FIELDS[field]["producerStage"]
+            for field in actual
+            if field in MAPPING_FIELDS
+        )
         stages = [stage for stage in stages if stage not in protected_producers]
-        replacement, recalculated = self.calc.recalculate(replacement, stages)
+        try:
+            replacement, recalculated, executions = self.calc.recalculate(replacement, stages)
+        except EnrichmentError as exc:
+            raise DomainError(str(exc)) from exc
         cancellation = deepcopy(current)
         for field in ADDITIVE_MEASURES:
             if cancellation.get(field) is not None:
@@ -204,19 +179,12 @@ class AdjustmentService:
             "rowVersion": row_version(current),
             "context": context,
             "mappingOverrides": mapping_overrides,
+            "calculationExecutions": executions,
         }
 
     @staticmethod
     def _label(k):
-        return {
-            "amount": "Amount",
-            "maturityDate": "Maturity date",
-            "targetInstrumentType": "Instrument type",
-            "reportingLineLcr": "Reporting Line LCR",
-            "eurAmount30d": "EUR Amount 30D",
-            "eurAmount3m": "EUR Amount 3M",
-            "lcrOutflow": "LCR Outflow",
-        }.get(k, k.replace("_", " ").title())
+        return FIELDS.label_for_api(k)
 
     def preview(self, context, row_id, changes):
         return self._build(context, row_id, changes)
@@ -305,7 +273,10 @@ class AdjustmentService:
             "_outputRecordId": None,
         }
         stages = self.resolver.resolve(set(values))
-        proxy, recalculated = self.calc.recalculate(proxy, stages)
+        try:
+            proxy, recalculated, executions = self.calc.recalculate(proxy, stages)
+        except EnrichmentError as exc:
+            raise DomainError(str(exc)) from exc
         return {
             "operationType": "PROXY",
             "original": None,
@@ -327,6 +298,7 @@ class AdjustmentService:
             "rowVersion": row_version(proxy),
             "context": context,
             "actionType": "PROXY",
+            "calculationExecutions": executions,
         }
 
     def commit_proxy(self, request, user):

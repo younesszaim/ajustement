@@ -1,5 +1,10 @@
 {
-  "exposure_class_mapping": "examples/exposure_class_2026-08-12.parquet",
-  "hqla_mapping": "examples/hqla_2026-08-12.parquet",
-  "reporting_line_mapping": "examples/reporting_line_2026-08-12.parquet"
+  "instrument_classification_mapping": "examples/instrument_classification_2026-08-13.parquet",
+  "issuer_mapping": "examples/issuer_2026-08-13.parquet",
+  "counterparty_mapping": "examples/counterparty_2026-08-13.parquet",
+  "exposure_class_mapping": "examples/exposure_class_2026-08-13.parquet",
+  "hqla_mapping": "examples/hqla_2026-08-13.parquet",
+  "reporting_line_mapping": "examples/reporting_line_2026-08-13.parquet",
+  "fx_rate_mapping": "examples/fx_rate_2026-08-13.parquet",
+  "lcr_factor_mapping": "examples/lcr_factor_2026-08-13.parquet"
 }

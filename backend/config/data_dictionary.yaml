@@ -1,0 +1,37 @@
+version: 1
+fields:
+  row_id: {api: rowId, db: source_row_id, label: Row ID, type: string}
+  trade_key: {api: tradeKey, db: trade_key, label: Trade key, type: string}
+  trade_no: {api: tradeNo, db: trade_no, label: Trade, type: string}
+  fo_system: {api: foSystem, db: fo_system, label: FO system, type: string}
+  target_instrument_type: {api: targetInstrumentType, db: target_instrument_type, parquet: RAW_INSTRUMENT_TYPE, label: Instrument type, type: string, editable: true, starts: [instrument_classification]}
+  instrument_class: {api: instrumentClass, parquet: INSTRUMENT_TYPE, label: Instrument class, type: string, producer: instrument_classification}
+  isin: {api: isin, db: isin, label: ISIN, type: string}
+  issue: {api: issue, db: issue, parquet: ISSUER, label: Issue, type: string, editable: true, starts: [issuer_enrichment]}
+  issuer_country: {api: issuerCountry, parquet: COUNTRY, label: Issuer country, type: string, producer: issuer_enrichment}
+  issuer_rating: {api: issuerRating, parquet: RATING, label: Issuer rating, type: string, producer: issuer_enrichment}
+  value_date: {api: valueDate, db: value_date, label: Value date, type: date, editable: true, starts: [buckets]}
+  maturity_date: {api: maturityDate, db: maturity_date, label: Maturity date, type: date, editable: true, starts: [buckets]}
+  currency: {api: currency, db: currency, parquet: CURRENCY, label: Currency, type: string, editable: true, starts: [eur_amount]}
+  amount: {api: amount, db: amount, label: Amount, type: decimal, editable: true, additive: true, starts: [eur_amount, buckets]}
+  portfolio: {api: portfolio, db: portfolio, label: Portfolio, type: string}
+  counterparty: {api: counterparty, db: counterparty, parquet: COUNTERPARTY, label: Counterparty, type: string, editable: true, starts: [counterparty_enrichment]}
+  counterparty_type: {api: counterpartyType, parquet: COUNTERPARTY_TYPE, label: Counterparty type, type: string, producer: counterparty_enrichment}
+  security_id: {api: securityId, db: security_id, label: Security ID, type: string, editable: true, starts: [instrument_classification]}
+  exposure_class: {api: exposureClass, db: exposure_class, parquet: EXPOSURE_CLASS, label: Exposure class, type: string, editable: true, producer: exposure_class, starts: [hqla]}
+  hqla_level: {api: hqlaLevel, db: hqla_level, parquet: HQLA_LEVEL, label: HQLA, type: string, editable: true, producer: hqla, starts: [reporting_lines]}
+  maturity_bucket: {api: maturityBucket, parquet: MATURITY_BUCKET, label: Maturity bucket, type: string, producer: buckets}
+  reporting_line_lcr: {api: reportingLineLcr, db: reporting_line_lcr, parquet: REPORTING_LINE_LCR, label: Reporting Line LCR, type: string, editable: true, producer: reporting_lines, starts: [lcr_impacts]}
+  fx_rate_to_eur: {api: fxRateToEur, parquet: RATE_TO_EUR, label: FX rate to EUR, type: decimal, producer: eur_amount}
+  eur_amount_0d: {api: eurAmount0d, db: eur_amount_0d, label: EUR amount 0D, type: decimal, producer: eur_amount, additive: true}
+  eur_amount_7d: {api: eurAmount7d, db: eur_amount_7d, label: EUR amount 7D, type: decimal, producer: buckets, additive: true}
+  eur_amount_30d: {api: eurAmount30d, db: eur_amount_30d, label: EUR amount 30D, type: decimal, producer: buckets, additive: true}
+  eur_amount_3m: {api: eurAmount3m, db: eur_amount_3m, label: EUR amount 3M, type: decimal, producer: buckets, additive: true}
+  lcr_inflow_factor: {api: lcrInflowFactor, parquet: INFLOW_FACTOR, label: LCR inflow factor, type: decimal, producer: lcr_impacts}
+  lcr_outflow_factor: {api: lcrOutflowFactor, parquet: OUTFLOW_FACTOR, label: LCR outflow factor, type: decimal, producer: lcr_impacts}
+  lcr_inflow: {api: lcrInflow, db: lcr_inflow, label: LCR inflow, type: decimal, producer: lcr_impacts, additive: true}
+  lcr_outflow: {api: lcrOutflow, db: lcr_outflow, label: LCR outflow, type: decimal, producer: lcr_impacts, additive: true}
+  reserve: {api: reserve, db: reserve_amount, label: Reserve, type: decimal, additive: true}
+  record_type: {api: recordType, db: record_type, label: Record type, type: string}
+  asofdate: {api: asofdate, db: asofdate, label: As-of date, type: date}
+  adjustment_batch_id: {api: adjustmentBatchId, db: adjustment_batch_id, label: Adjustment batch, type: string}

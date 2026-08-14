@@ -5,30 +5,34 @@ business field uses a mapping; the JSON manifest resolves the mapping name to
 the latest immutable Parquet object.
 """
 
+from .data_dictionary import FIELDS
+
+A = FIELDS.api
+
 MAPPING_FIELDS = {
-    "exposureClass": {
+    A("exposure_class"): {
         "mappingName": "exposure_class_mapping",
-        "displayName": "Exposure class",
+        "displayName": FIELDS.field("exposure_class").label,
         "description": "Possible outputs from the latest exposure-class mapping.",
-        "outputColumn": "EXPOSURE_CLASS",
+        "outputColumn": FIELDS.parquet("exposure_class"),
         "producerStage": "exposure_class",
         "recalculationStartStage": "hqla",
         "downstreamStages": ["hqla", "reporting_lines", "lcr_impacts"],
     },
-    "hqlaLevel": {
+    A("hqla_level"): {
         "mappingName": "hqla_mapping",
-        "displayName": "HQLA level",
+        "displayName": FIELDS.field("hqla_level").label,
         "description": "Possible outputs from the latest HQLA mapping.",
-        "outputColumn": "HQLA_LEVEL",
+        "outputColumn": FIELDS.parquet("hqla_level"),
         "producerStage": "hqla",
         "recalculationStartStage": "reporting_lines",
         "downstreamStages": ["reporting_lines", "lcr_impacts"],
     },
-    "reportingLineLcr": {
+    A("reporting_line_lcr"): {
         "mappingName": "reporting_line_mapping",
-        "displayName": "Reporting line LCR",
+        "displayName": FIELDS.field("reporting_line_lcr").label,
         "description": "Possible outputs from the latest reporting-line mapping.",
-        "outputColumn": "REPORTING_LINE_LCR",
+        "outputColumn": FIELDS.parquet("reporting_line_lcr"),
         "producerStage": "reporting_lines",
         "recalculationStartStage": "lcr_impacts",
         "downstreamStages": ["lcr_impacts"],

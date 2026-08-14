@@ -22,11 +22,23 @@ repo   resolver     service
                    Vertica
 ```
 
-The application supports Supabase-only storage, a two-schema hybrid simulator, and a real Vertica/PostgreSQL adapter boundary. The in-memory repository is retained only as an isolated automated-test fixture. Business calculations still live behind `MockCalculationAdapter` until the production LiMon functions are connected through `backend/app/adapters/limon_calculation_adapter.py`.
+The application supports Supabase-only storage, a two-schema hybrid simulator, and a real Vertica/PostgreSQL adapter boundary. The in-memory repository is retained only as an isolated automated-test fixture. Business calculations run through a pandas DataFrame pipeline in `backend/lib/enrichments`: rule functions receive a trade DataFrame, while parameter functions also receive the latest manifest-selected Parquet table. The functions never open S3 or PostgreSQL themselves.
 
 ## Run locally
 
 Requires Node 18+ and Python 3.11+.
+
+Create the ignored local environment file once (never commit its database URL):
+
+```bash
+cp .env.example .env
+```
+
+For the two-schema simulator, set `STORAGE_MODE=hybrid_sim` and provide either
+`SUPABASE_DB_URL` as the shared connection, or both `OUTPUT_DB_URL` and
+`METADATA_DB_URL`. For Supabase-only mode, set `STORAGE_MODE=supabase` and
+`SUPABASE_DB_URL`. The backend loads this root `.env` regardless of its launch
+directory.
 
 ```bash
 cd backend
@@ -263,6 +275,11 @@ before changing an endpoint or adding an adjustment type.
 | Calculation graph | Editable fields, additive measures and stage dependencies | `backend/app/config.py` |
 | Mapping rules | Maps adjustable fields to Parquet outputs and downstream stages | `backend/app/mapping_config.py` |
 | Mapping data | Resolves the latest Parquet path, searches rows and validates values | `backend/app/mappings.py` |
+| Calculation pipeline | Runs registered stages and records function/mapping execution metadata | `backend/lib/enrichments/pipeline.py` |
+| Rule functions | Recalculate columns directly from the input DataFrame (for example buckets) | `backend/lib/enrichments/rules.py` |
+| Parameter functions | Match input columns against an injected mapping DataFrame | `backend/lib/enrichments/parameter.py` |
+| Calculation registry | Explicit allowlist of stage, function, inputs, outputs and mapping name | `backend/lib/enrichments/registry.py` |
+| Semantic data dictionary | Canonical API/database/Parquet names, labels, types and field behavior | `backend/config/data_dictionary.yaml` |
 | Runtime selection | Selects Supabase, hybrid simulation or production hybrid repositories | `backend/app/storage.py` |
 | Hybrid coordinator | Coordinates output writes and metadata without a distributed transaction | `backend/app/adapters/hybrid_adjustment_repository.py` |
 | Simulated Vertica | Implements output behavior in the `vertica_sim` PostgreSQL schema | `backend/app/adapters/postgres_vertica_simulator.py` |
@@ -287,6 +304,73 @@ The application deliberately separates five communication levels:
    in one PostgreSQL database, two simulated schemas, or Vertica + PostgreSQL.
 5. **Physical storage:** output rows feed Power BI; metadata rows provide audit,
    idempotency, recovery and history.
+
+### DataFrame recalculation contract
+
+The service still handles one trade at a time today, but converts that row to a
+DataFrame before calculation. Business functions are therefore already
+vector-friendly for a future batch calculation:
+
+```python
+# Rule: no external parameter
+def calculate_buckets(trades: pd.DataFrame, context) -> pd.DataFrame: ...
+
+# Parameter enrichment: the orchestrator injects the selected Parquet content
+def enrich_reporting_line_lcr(
+    trades: pd.DataFrame,
+    parameter: pd.DataFrame,
+    context,
+) -> pd.DataFrame: ...
+```
+
+To add a LiMon calculation, create the function in `backend/lib/enrichments`,
+register it explicitly in `registry.py`, then declare its dependencies in
+`backend/app/config.py`. A function must return the same number of rows. For a
+parameter mapping, exact values beat `*` wildcards; no match and ambiguous
+equally-specific matches are blocking domain errors. The pipeline response adds
+`calculationExecutions` with the stage, function name, calculation type, mapping
+name/path, output fields, processed row count and status.
+
+For example, changing `maturityDate` runs the bucket rule. The generated
+`maturityBucket` then becomes an input of the reporting-line mapping. The
+manifest resolves `reporting_line_mapping` to the latest Parquet file, the
+provider loads it once, and `enrich_reporting_line_lcr` selects the most
+specific compatible row. A manual mapping selection still protects its own
+producer stage; only downstream stages execute.
+
+The local manifest currently supplies example Parquet parameters for instrument
+classification, issuer, counterparty, FX, exposure class, HQLA, reporting line
+and LCR factors. Only buckets are a parameter-free rule. There is no calculation
+fallback and no unregistered stage is silently skipped: missing providers,
+inputs, parameters or functions make preview fail before any commit can start.
+Regenerate the local example files with:
+
+```bash
+PYTHONPATH=backend .venv/bin/python backend/scripts/build_example_parameters.py
+```
+
+### Renaming fields safely
+
+`backend/config/data_dictionary.yaml` is the canonical field catalog. Its
+stable snake-case key is the semantic identifier; `api`, `db` and `parquet`
+are boundary-specific names. It also owns the user label, type, editability,
+additive behavior, producer and calculation starting stages. Backend startup
+rejects duplicate API/database names, and tests verify that every producer is
+registered.
+
+After changing a label or API-facing name, regenerate the frontend catalog and
+run both test suites:
+
+```bash
+PYTHONPATH=backend .venv/bin/python backend/scripts/generate_frontend_fields.py
+PYTHONPATH=backend .venv/bin/pytest backend/tests
+npm --prefix frontend run build
+```
+
+Changing a physical `db` name still requires a reviewed SQL migration because
+existing Vertica/PostgreSQL data cannot be renamed safely by application
+configuration alone. Historical JSON snapshots should keep their original
+names or be supported with an explicit compatibility alias during migration.
 
 ```mermaid
 flowchart LR

@@ -11,6 +11,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import NAMESPACE_URL, uuid5
 
+from ..data_dictionary import FIELDS
 from ..services import DomainError
 
 
@@ -54,7 +55,7 @@ class PostgresVerticaSimulatorRepository:
 
     def _domain(self, row):
         source_id = row.get("source_output_record_id") or row["output_record_id"]
-        return {
+        domain = {
             "rowId": source_id,
             "tradeKey": "|".join(
                 str(row.get(key) or "")
@@ -88,6 +89,18 @@ class PostgresVerticaSimulatorRepository:
             "_parentOutputRecordId": row.get("parent_output_record_id"),
             "_createdAt": self._iso(row.get("created_at")),
         }
+        # Business fields with a physical database column are declared once in
+        # the dictionary. Specialized identifiers above keep their lineage
+        # semantics; this loop normalizes the configurable business columns.
+        for field in FIELDS.fields.values():
+            if field.db and field.db in row and row.get(field.db) is not None:
+                value = row.get(field.db)
+                if field.type == "decimal":
+                    value = self._number(value)
+                elif field.type == "date":
+                    value = self._iso(value)
+                domain[field.api] = value
+        return domain
 
     def asofdates(self):
         with self.connection() as connection:
