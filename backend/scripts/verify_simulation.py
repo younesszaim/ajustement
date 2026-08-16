@@ -1,6 +1,5 @@
-"""Run a recovery/idempotency smoke test against the Supabase hybrid simulator."""
+"""Run a recovery/idempotency smoke test against the two simulation schemas."""
 
-from getpass import getpass
 import os
 from pathlib import Path
 import sys
@@ -8,9 +7,10 @@ import sys
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
 import psycopg
+from dotenv import load_dotenv
 from psycopg.rows import dict_row
 
-from app.adapters.hybrid_adjustment_repository import HybridAdjustmentRepository
+from app.adapters.simulation_adjustment_repository import SimulationAdjustmentRepository
 from app.adapters.postgres_simulation_audit_repository import (
     PostgresSimulationAuditRepository,
 )
@@ -21,28 +21,21 @@ from app.models import CommitRequest, LimonContext
 from app.services import AdjustmentService, InfrastructureError
 from app.mappings import build_mapping_provider
 
-HOST = "db.szozfcqawdkfzugwrzdh.supabase.co"
-IDEMPOTENCY_KEY = "hybrid-sim-recovery-verification-v2"
+IDEMPOTENCY_KEY = "simulation-recovery-verification-v2"
 
 
 def main():
-    password = getpass("Supabase database password: ")
+    load_dotenv(Path(__file__).parents[2] / ".env")
+    url = os.getenv("DATABASE_URL")
+    if not url:
+        raise SystemExit("DATABASE_URL is required")
 
     def connection():
-        return psycopg.connect(
-            host=HOST,
-            port=5432,
-            dbname="postgres",
-            user="postgres",
-            password=password,
-            sslmode="require",
-            connect_timeout=15,
-            row_factory=dict_row,
-        )
+        return psycopg.connect(url, connect_timeout=15, row_factory=dict_row)
 
     output = PostgresVerticaSimulatorRepository(connection)
     audit = PostgresSimulationAuditRepository(connection)
-    repository = HybridAdjustmentRepository(output, audit, "limon_ldp_bmf")
+    repository = SimulationAdjustmentRepository(output, audit, "limon_ldp_bmf")
     service = AdjustmentService(repository, build_mapping_provider())
 
     existing = repository.get_idempotent(IDEMPOTENCY_KEY)
@@ -58,13 +51,13 @@ def main():
             context=context,
             rowId="SIM-ROW-0002",
             changes={"amount": 761000},
-            reason="Hybrid recovery verification",
+            reason="Simulation recovery verification",
             expectedVersion=preview["rowVersion"],
             idempotencyKey=IDEMPOTENCY_KEY,
         )
         os.environ["SIMULATED_FAILURE_POINT"] = "AFTER_OUTPUT_COMMITTED"
         try:
-            service.commit(request, "hybrid.verifier")
+            service.commit(request, "simulation.verifier")
             raise AssertionError("Expected the simulated post-output failure.")
         except InfrastructureError as error:
             if "Simulated infrastructure failure" not in str(error):
@@ -72,8 +65,8 @@ def main():
             print("Simulated crash after output commit observed.")
         finally:
             os.environ.pop("SIMULATED_FAILURE_POINT", None)
-        result = service.commit(request, "hybrid.verifier")
-        assert service.commit(request, "hybrid.verifier") == result
+        result = service.commit(request, "simulation.verifier")
+        assert service.commit(request, "simulation.verifier") == result
         print("Retry recovered and repeated retry reused the committed result.")
 
     with connection() as database:

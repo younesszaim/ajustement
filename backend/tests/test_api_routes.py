@@ -26,7 +26,7 @@ def test_asofdates_route_returns_repository_dates(monkeypatch):
 def test_missing_database_configuration_is_actionable_503(monkeypatch):
     class Repository:
         def asofdates(self):
-            raise RuntimeError("SUPABASE_DB_URL is required for STORAGE_MODE=supabase")
+            raise RuntimeError("DATABASE_URL is required")
 
     monkeypatch.setattr(main, "repo", Repository())
     response = authenticated_client().get("/api/asofdates")

@@ -22,7 +22,11 @@ repo   resolver     service
                    Vertica
 ```
 
-The application supports Supabase-only storage, a two-schema hybrid simulator, and a real Vertica/PostgreSQL adapter boundary. The in-memory repository is retained only as an isolated automated-test fixture. Business calculations run through a pandas DataFrame pipeline in `backend/lib/enrichments`: rule functions receive a trade DataFrame, while parameter functions also receive the latest manifest-selected Parquet table. The functions never open S3 or PostgreSQL themselves.
+The application has one storage architecture. A single PostgreSQL connection
+hosts two isolated schemas: `vertica_sim` contains output rows and
+`adjustment_meta` contains requests, batches, snapshots and audit events.
+Business calculations run through the pandas DataFrame pipeline in
+`backend/lib/enrichments`.
 
 ## Run locally
 
@@ -34,18 +38,15 @@ Create the ignored local environment file once (never commit its database URL):
 cp .env.example .env
 ```
 
-For the two-schema simulator, set `STORAGE_MODE=hybrid_sim` and provide either
-`SUPABASE_DB_URL` as the shared connection, or both `OUTPUT_DB_URL` and
-`METADATA_DB_URL`. For Supabase-only mode, set `STORAGE_MODE=supabase` and
-`SUPABASE_DB_URL`. The backend loads this root `.env` regardless of its launch
-directory.
+Set `DATABASE_URL` to the PostgreSQL/Supabase Session Pooler connection. There
+is no storage-mode switch and no separate output/metadata URL.
 
 ```bash
 cd backend
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-SUPABASE_DB_URL='postgresql://USER:PASSWORD@HOST:5432/postgres?sslmode=require' uvicorn app.main:app --reload
+DATABASE_URL='postgresql://USER:PASSWORD@HOST:5432/postgres?sslmode=require' uvicorn app.main:app --reload --port 8001
 ```
 
 In a second terminal:
@@ -56,7 +57,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`. The API is at `http://localhost:8000/docs`.
+Open `http://localhost:5173`. The API is at `http://localhost:8001/docs`.
 
 For ready-to-use Swagger and `curl` examples for every route, see
 [docs/api-testing-guide.md](docs/api-testing-guide.md).
@@ -82,20 +83,21 @@ For the currently effective row, preview and commit both rebuild the journal aut
 3. Resolve the transitive calculation DAG and run affected stages in topological order.
 4. Store the recalculated clone as `ADJUSTMENT_REPLACEMENT`.
 5. On commit, re-read the effective row and compare its deterministic version hash.
-6. Insert both records plus audit metadata in one Vertica transaction; rollback everything on failure.
+6. Append output rows in `vertica_sim`, then finalize audit metadata in
+   `adjustment_meta`; reconciliation completes metadata after a simulated crash.
 
 The mock repository mirrors atomicity, idempotency, effective-state lookup, and history in memory. Preview has no write side effects.
 
-## Configuration and production integration
+## Configuration
 
 - Editable inputs: `backend/app/config.py` → `EDITABLE_FIELDS`
 - Additive measures: `backend/app/config.py` → `ADDITIVE_MEASURES`
 - Dependency graph: `FIELD_DEPENDENCIES` and `STAGE_DEPENDENCIES`
 - Authentication: `AUTH_MODE=mock` enables development identities. Set a long
   random `AUTH_SESSION_SECRET`; it is a backend-only secret.
-- Runtime storage: `SUPABASE_DB_URL` must be set as a backend secret. FastAPI has no mock-storage runtime switch.
-- Vertica: provide `VERTICA_HOST`, `VERTICA_PORT`, `VERTICA_DATABASE`, `VERTICA_USER`, `VERTICA_PASSWORD`, and `VERTICA_SCHEMA` through the deployment secret manager; no credentials are stored here.
-- Supabase/PostgreSQL storage: set `SUPABASE_DB_URL` only in the backend secret manager and set `ADJUSTMENT_PROJECT_KEY=limon_ldp_bmf`. Never expose this URL through a `VITE_` variable.
+- Runtime storage: `DATABASE_URL` is a backend-only secret.
+- Project: `ADJUSTMENT_PROJECT_KEY=limon_ldp_bmf` selects the metadata project.
+- Never expose a database URL through a `VITE_` variable.
 
 ## Mock SSO and role-based access
 
@@ -122,47 +124,29 @@ instead of a local username. The production CACIB SSO adapter must return the
 same identity shape and map enterprise groups to the internal roles. Mock login
 must be disabled in production.
 
-## Supabase adjustment storage
+## Storage schemas
 
-The reusable migration is [backend/migrations/001_supabase_adjustment_storage.sql](backend/migrations/001_supabase_adjustment_storage.sql). It creates:
-
-- `out_completude_ldp_bmf`: immutable base, cancellation, and replacement output rows;
-- `adjustment_projects`: reusable per-project field and calculation configuration;
-- `adjustment_batches`: committed adjustment/revert transaction headers and idempotency;
-- `adjustment_batch_items`: per-trade lineage and preview concurrency versions;
-- `adjustment_field_changes`: typed before/after audit details;
-- `adjustment_action_events`: append-only user activity and security audit events;
-- `v_out_completude_ldp_bmf_current`: current effective row per source/context;
-- `v_adjustment_register`: committed/reverted global register.
-
-Database triggers reject updates and deletes from output and audit tables. Reverts are new append-only batches. Supabase RLS is enabled and `anon`/`authenticated` access is revoked because all access must pass through FastAPI.
-
-## Real LiMon: Vertica output + PostgreSQL metadata
-
-### Hybrid simulation in Supabase
-
-Migration `004_hybrid_simulation.sql` creates two deliberately isolated schemas:
+Migration `001_simulation_storage.sql` creates two deliberately isolated schemas:
 
 - `vertica_sim`: `output_completude_table` plus the technical idempotency link table;
 - `adjustment_meta`: requests, committed batches, snapshots, field changes, and action events.
 
-Run the web application against them with separate connection factories, even when both URLs point to the same Supabase project:
+Configure the single connection:
 
 ```env
-STORAGE_MODE=hybrid_sim
 ADJUSTMENT_PROJECT_KEY=limon_ldp_bmf
-OUTPUT_DB_URL=postgresql://USER:PASSWORD@HOST:5432/postgres?sslmode=require
-METADATA_DB_URL=postgresql://USER:PASSWORD@HOST:5432/postgres?sslmode=require
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/postgres?sslmode=require
 ```
 
-The simulator never performs a cross-schema transaction or join from application code. Test crash recovery and duplicate prevention interactively with:
+The application never joins the schemas. Test crash recovery and duplicate
+prevention with:
 
 ```bash
 cd backend
-../.venv/bin/python scripts/verify_hybrid_simulation.py
+../.venv/bin/python scripts/verify_simulation.py
 ```
 
-The hybrid workflow supports three append-only operations:
+The workflow supports three append-only operations:
 
 - `ADJUSTMENT`: one reversal and one adjusted replacement row.
 - `TRADE_CANCELLATION`: one reversal row; the trade has no active business row afterward.
@@ -170,8 +154,8 @@ The hybrid workflow supports three append-only operations:
   number such as `PROXY-20260811-A1B2C3D4`, while the output adapter generates
   the physical `output_record_id`.
 
-For an existing hybrid simulation database, apply
-`backend/migrations/005_cancel_and_proxy_adjustments.sql` before using these
+For an existing database, apply
+`backend/migrations/002_cancel_and_proxy_adjustments.sql` before using these
 operations. The schema installer applies migrations in filename order.
 
 ### Mapping-assisted manual overrides
@@ -208,7 +192,7 @@ cd backend
 Set `MAPPING_MANIFEST_PATH` to use another manifest. In production, replace the
 local paths in that JSON with the versioned S3 paths supplied by LiMon. The
 runtime uses the normal AWS credential chain when PyArrow reads `s3://` data.
-Migration `006_mapping_audit_metadata.sql` adds only the JSON audit column; it
+Migration `003_mapping_audit_metadata.sql` adds only the JSON audit column; it
 does not create a mapping schema or mapping tables.
 
 The script injects a crash after the output commit, retries the same idempotency key, verifies exactly two generated output rows, and checks the net Power BI amount.
@@ -217,7 +201,7 @@ For local development without writing the database password to `.env` or shell h
 
 ```bash
 cd backend
-../.venv/bin/python scripts/run_hybrid_sim.py
+../.venv/bin/python scripts/run_simulation.py
 ```
 
 Enter the password at the private prompt, then start the Vite frontend normally in a second terminal.
@@ -227,28 +211,12 @@ If the API uses a non-default port, point Vite to it without exposing any databa
 VITE_API_PROXY_TARGET=http://127.0.0.1:8001 npm run dev
 ```
 
-### Production hybrid mode
-
-Set `STORAGE_MODE=hybrid`. In this mode, the repository composition keeps `output_completude_table` and all physical cancellation/replacement rows in Vertica, while Supabase stores coordinator state, immutable audit snapshots, changes, idempotency, and user events. The API and adjustment service do not change.
-
-Provide the existing enterprise connection factory as an import path:
-
-```env
-STORAGE_MODE=hybrid
-LIMON_VERTICA_CONNECTION_FACTORY=limon.db:open_vertica_connection
-VERTICA_OUTPUT_TABLE=output_completude_table
-```
-
-See [docs/hybrid-vertica-supabase.md](docs/hybrid-vertica-supabase.md) for the commit/recovery protocol and the exact production integration points. The hybrid coordinator tables are created by `003_hybrid_vertica_coordinator.sql`.
-
-Apply the migration interactively without putting the password in shell history:
+Apply all retained migrations:
 
 ```bash
 cd backend
-.venv/bin/python scripts/apply_supabase_schema.py
+.venv/bin/python scripts/apply_simulation_schema.py
 ```
-
-Before production enablement, map domain fields to the reviewed schema, implement `get_effective_trade`, wire the existing LiMon Python functions, and review [the proposed audit DDL](docs/adjustment_audit.sql). The DDL is intentionally not applied automatically.
 
 ## Security model
 
@@ -280,11 +248,10 @@ before changing an endpoint or adding an adjustment type.
 | Parameter functions | Match input columns against an injected mapping DataFrame | `backend/lib/enrichments/parameter.py` |
 | Calculation registry | Explicit allowlist of stage, function, inputs, outputs and mapping name | `backend/lib/enrichments/registry.py` |
 | Semantic data dictionary | Canonical API/database/Parquet names, labels, types and field behavior | `backend/config/data_dictionary.yaml` |
-| Runtime selection | Selects Supabase, hybrid simulation or production hybrid repositories | `backend/app/storage.py` |
-| Hybrid coordinator | Coordinates output writes and metadata without a distributed transaction | `backend/app/adapters/hybrid_adjustment_repository.py` |
+| Storage composition | Connects the `vertica_sim` and `adjustment_meta` repositories | `backend/app/storage.py` |
+| Commit coordinator | Coordinates output rows and metadata recovery | `backend/app/adapters/simulation_adjustment_repository.py` |
 | Simulated Vertica | Implements output behavior in the `vertica_sim` PostgreSQL schema | `backend/app/adapters/postgres_vertica_simulator.py` |
 | Simulation audit | Stores requests, batches, snapshots and actions in `adjustment_meta` | `backend/app/adapters/postgres_simulation_audit_repository.py` |
-| Real Vertica boundary | Minimal adapter for the production output database | `backend/app/adapters/vertica_repository.py` |
 | Frontend orchestration | Queries, mutations, workspace state and dialogs | `frontend/src/App.tsx` |
 | API client | The browser's typed REST boundary | `frontend/src/api.ts` |
 | Shared UI types | API response and request shapes used by React | `frontend/src/types.ts` |
@@ -368,7 +335,7 @@ npm --prefix frontend run build
 ```
 
 Changing a physical `db` name still requires a reviewed SQL migration because
-existing Vertica/PostgreSQL data cannot be renamed safely by application
+existing database data cannot be renamed safely by application
 configuration alone. Historical JSON snapshots should keep their original
 names or be supported with an explicit compatibility alias during migration.
 
@@ -606,7 +573,7 @@ Vertica filtering and pagination remain server-side. There is deliberately no
 implicit "select every matching row" action for very large populations.
 
 Development data includes 25 in-memory Orchestrade examples and migration
-`007_seed_batch_selection_examples.sql` adds 40 hybrid-simulation rows with
+`004_seed_batch_selection_examples.sql` adds 40 simulation rows with
 varied portfolios, counterparties, currencies, instruments, classifications,
 maturities and amounts. Orchestrade examples use `OT-BATCH-*` and Murex
 examples use `MX-BATCH-*`. Migration `008_repair_batch_example_trade_prefixes.sql`
@@ -637,9 +604,9 @@ sequenceDiagram
     UI->>API: refresh register and lineage
 ```
 
-### Hybrid commit, failure and reconciliation
+### Commit, failure and reconciliation
 
-Vertica and PostgreSQL cannot share one ACID transaction. The hybrid repository
+The two schema boundaries are coordinated as separate commits. The repository
 therefore uses a recoverable coordinator protocol:
 
 1. Reserve the idempotency key in PostgreSQL.
@@ -710,6 +677,6 @@ cd ../frontend
 npm run build
 ```
 
-For storage or reconciliation changes, also run the hybrid verification script
+For storage or reconciliation changes, also run the simulation verification script
 against the simulation schemas. Never run integration verification against a
-production Vertica table.
+`vertica_sim.output_completude_table`.

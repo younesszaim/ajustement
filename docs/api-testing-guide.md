@@ -1,7 +1,7 @@
-# LiMon API testing guide
+ # LiMon API testing guide
 
 This guide shows how to test every LiMon Adjustment Manager route through
-Swagger UI or `curl`. Examples use the hybrid-simulation seed context:
+Swagger UI or `curl`. Examples use the `vertica_sim` seed context:
 
 ```text
 API:            http://127.0.0.1:8001
@@ -572,7 +572,7 @@ health, metadata health and active simulated failure point.
 
 ### `POST /api/adjustments/{batch_reference}/reconcile` — technical write
 
-Requires `thomas.technical` and hybrid storage. The body is empty:
+Requires `thomas.technical`. The body is empty:
 
 ```bash
 curl -sS -b "$LIMON_COOKIE" -X POST \

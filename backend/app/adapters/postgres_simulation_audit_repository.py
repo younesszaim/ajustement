@@ -1,4 +1,4 @@
-"""PostgreSQL metadata repository for the two-schema hybrid simulator."""
+"""PostgreSQL metadata repository for the `adjustment_meta` schema."""
 
 from __future__ import annotations
 

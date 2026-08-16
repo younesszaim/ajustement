@@ -1,5 +1,16 @@
 BEGIN;
 
+-- Canonical and only application storage: output plus adjustment metadata.
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+CREATE OR REPLACE FUNCTION public.prevent_adjustment_mutation()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'Adjustment storage is append-only';
+END;
+$$;
+
 CREATE SCHEMA IF NOT EXISTS vertica_sim;
 CREATE SCHEMA IF NOT EXISTS adjustment_meta;
 
@@ -166,7 +177,7 @@ CREATE INDEX IF NOT EXISTS meta_snapshots_source_idx ON adjustment_meta.item_sna
 CREATE INDEX IF NOT EXISTS meta_requests_recovery_idx ON adjustment_meta.requests(status,updated_at);
 
 INSERT INTO adjustment_meta.projects(project_key,display_name,output_table_name)
-VALUES('limon_ldp_bmf','LiMon LDP BMF Hybrid Simulation','vertica_sim.output_completude_table')
+VALUES('limon_ldp_bmf','LiMon LDP BMF Simulation','vertica_sim.output_completude_table')
 ON CONFLICT(project_key) DO UPDATE SET display_name=EXCLUDED.display_name,output_table_name=EXCLUDED.output_table_name,is_active=true;
 
 INSERT INTO vertica_sim.output_completude_table(

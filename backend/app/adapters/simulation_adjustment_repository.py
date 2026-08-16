@@ -7,11 +7,10 @@ batch reference. A recovery worker can safely finish a request after a crash.
 
 from __future__ import annotations
 import os
-from .postgres_audit_repository import PostgresAuditRepository
 from ..services import InfrastructureError
 
 
-class HybridAdjustmentRepository:
+class SimulationAdjustmentRepository:
     """Facade over independent output and audit repositories.
 
     Commit methods reserve durable metadata first, write output using a stable
@@ -22,7 +21,7 @@ class HybridAdjustmentRepository:
     def __init__(
         self,
         output_repository,
-        audit_repository: PostgresAuditRepository,
+        audit_repository,
         project_key="limon_ldp_bmf",
     ):
         self.output = output_repository
@@ -110,8 +109,6 @@ class HybridAdjustmentRepository:
         try:
             return self.audit.record_action(*args, **kwargs)
         except TypeError:
-            # The real adapter keeps the original protocol until its enterprise
-            # implementation is upgraded to accept a project key explicitly.
             kwargs.pop("project_key", None)
             return self.audit.record_action(*args, **kwargs)
 

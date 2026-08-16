@@ -1,4 +1,4 @@
-"""Start the API in hybrid simulation mode without persisting credentials."""
+"""Start the only API storage using vertica_sim and adjustment_meta."""
 
 from pathlib import Path
 import os
@@ -15,22 +15,18 @@ import uvicorn
 
 
 def main():
-    database_url = os.getenv("SUPABASE_DB_URL")
-    output_url = os.getenv("OUTPUT_DB_URL") or database_url
-    metadata_url = os.getenv("METADATA_DB_URL") or database_url
-    if not output_url or not metadata_url:
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
         raise SystemExit(
-            "Database connection is not configured. Set SUPABASE_DB_URL in the "
+            "Database connection is not configured. Set DATABASE_URL in the "
             "ignored root .env to the Supabase Session Pooler URI."
         )
     os.environ.update(
         {
-            "STORAGE_MODE": "hybrid_sim",
             "ADJUSTMENT_PROJECT_KEY": os.getenv(
                 "ADJUSTMENT_PROJECT_KEY", "limon_ldp_bmf"
             ),
-            "OUTPUT_DB_URL": output_url,
-            "METADATA_DB_URL": metadata_url,
+            "DATABASE_URL": database_url,
             "LOCAL_USER": os.getenv("LOCAL_USER", "developer@example"),
             "SIMULATED_FAILURE_POINT": os.getenv("SIMULATED_FAILURE_POINT", ""),
         }

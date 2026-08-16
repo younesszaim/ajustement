@@ -1,4 +1,4 @@
-"""PostgreSQL-backed simulation of the real Vertica output boundary.
+"""PostgreSQL repository for the `vertica_sim` output boundary.
 
 The adapter deliberately owns a separate connection and transaction from the
 metadata repository. No SQL statement joins the two schemas.

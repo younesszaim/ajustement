@@ -54,7 +54,7 @@ from .auth import (
 from .mappings import build_mapping_provider
 from .config import BATCH_FILTER_FIELDS
 
-storage_mode = os.getenv("STORAGE_MODE", "supabase").lower()
+storage_mode = "vertica_sim+adjustment_meta"
 app = FastAPI(
     title="LiMon Adjustment Manager API",
     version="0.1.0",
@@ -68,7 +68,7 @@ app = FastAPI(
         {"name": "Snapshots and trades", "description": "Read one LiMon as-of date and version."},
         {"name": "Mappings", "description": "Controlled values read from manifest-selected Parquet."},
         {"name": "Adjustments", "description": "Impact, preview and durable business writes."},
-        {"name": "Operations", "description": "Technical health and hybrid reconciliation."},
+        {"name": "Operations", "description": "Technical health and reconciliation."},
     ],
 )
 app.add_middleware(
@@ -168,10 +168,7 @@ def health(identity=Depends(require(TECHNICAL_ADMIN))):
     }
     if hasattr(repo, "health"):
         result["storage"] = repo.health()
-    if storage_mode == "hybrid_sim":
-        result["simulatedFailurePoint"] = os.getenv(
-            "SIMULATED_FAILURE_POINT"
-        ) or None
+    result["simulatedFailurePoint"] = os.getenv("SIMULATED_FAILURE_POINT") or None
     return result
 
 
@@ -445,10 +442,6 @@ def reconcile_adjustment(
     identity=Depends(require(TECHNICAL_ADMIN)),
 ):
     try:
-        if not hasattr(repo, "reconcile_adjustment"):
-            raise InfrastructureError(
-                "Reconciliation is available only in hybrid storage mode."
-            )
         return repo.reconcile_adjustment(batch_reference)
     except (DomainError, InfrastructureError) as exc:
         fail(exc)

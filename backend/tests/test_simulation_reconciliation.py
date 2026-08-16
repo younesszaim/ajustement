@@ -2,7 +2,7 @@ from datetime import date, datetime
 
 import pytest
 
-from app.adapters.hybrid_adjustment_repository import HybridAdjustmentRepository
+from app.adapters.simulation_adjustment_repository import SimulationAdjustmentRepository
 from app.models import LimonContext
 from app.services import InfrastructureError
 
@@ -61,7 +61,7 @@ def test_reconciliation_uses_existing_output_rows_and_finalizes_metadata():
         [{"_outputRecordId": "cancel-1"}, {"_outputRecordId": "replacement-1"}]
     )
     audit = AuditStub()
-    repo = HybridAdjustmentRepository(output, audit)
+    repo = SimulationAdjustmentRepository(output, audit)
 
     result = repo.reconcile_adjustment("ADJ-pending")
 
@@ -71,7 +71,7 @@ def test_reconciliation_uses_existing_output_rows_and_finalizes_metadata():
 
 
 def test_reconciliation_blocks_partial_output_batches():
-    repo = HybridAdjustmentRepository(
+    repo = SimulationAdjustmentRepository(
         OutputStub([{"_outputRecordId": "cancel-1"}]), AuditStub()
     )
 
