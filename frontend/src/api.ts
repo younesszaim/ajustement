@@ -7,8 +7,6 @@ import type {
   ProxyFields,
   Trade,
   TradeLineage,
-  AuthUser,
-  MockAuthUser,
   MappedField,
   MappingRows,
 } from "./types";
@@ -17,13 +15,13 @@ import type {
  * Single browser-to-backend boundary.
  *
  * Components call these typed functions instead of using fetch directly. The
- * session cookie is included automatically and FastAPI's `detail` message is
- * converted to an Error so React Query mutations can display it consistently.
+ * FastAPI's `detail` message is converted to an Error so React Query mutations
+ * can display it consistently.
  *
  * Example: `api.trade(context, rowId)` always supplies both snapshot keys.
  */
 const json = async <T>(url: string, init?: RequestInit): Promise<T> => {
-  const r = await fetch(url, { credentials: "include", ...init });
+  const r = await fetch(url, init);
   const body = await r.json().catch(() => ({ detail: r.statusText }));
   if (!r.ok) throw new Error(body.detail ?? "Request failed");
   return body;
@@ -35,14 +33,6 @@ const post = <T>(url: string, body: unknown) =>
     body: JSON.stringify(body),
   });
 export const api = {
-  // Session bootstrap. Production can replace the backend identity adapter
-  // without changing these stable frontend contracts.
-  authMe: () => json<AuthUser>("/api/auth/me"),
-  mockUsers: () => json<MockAuthUser[]>("/api/auth/mock-users"),
-  mockLogin: (username: string) =>
-    post<AuthUser>("/api/auth/mock-login", { username }),
-  logout: () =>
-    json<void>("/api/auth/logout", { method: "POST" }),
   dates: () => json<string[]>("/api/asofdates"),
   // Snapshot-scoped reads. Query keys in App.tsx must contain the same context.
   versions: (d: string) => json<string[]>(`/api/versions?asofdate=${d}`),

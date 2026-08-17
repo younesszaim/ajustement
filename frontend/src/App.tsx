@@ -17,18 +17,15 @@ import {
   CalendarDays,
   BookOpen,
   Check,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ChevronsUpDown,
   Clock3,
   History,
   Loader2,
-  LogOut,
   RotateCcw,
   Search,
   ShieldCheck,
-  UserRound,
 } from "lucide-react";
 import { api } from "./api";
 import { fieldLabel, fields } from "./generated/fields";
@@ -40,7 +37,6 @@ import type {
   Preview,
   ProxyFields,
   Trade,
-  AuthUser,
   MappedField,
 } from "./types";
 const money = new Intl.NumberFormat("en-GB", {
@@ -91,13 +87,7 @@ const summary = [
   "reportingLineLcr",
   "lcrOutflow",
 ];
-export function App({
-  user,
-  onLogout,
-}: {
-  user: AuthUser;
-  onLogout: () => void;
-}) {
+export function App() {
   /*
    * App orchestrates the workspace. React Query owns authoritative server
    * state; the hooks below own only drafts, selection and open dialogs. Child
@@ -105,8 +95,6 @@ export function App({
    * call the API directly.
    */
   const qc = useQueryClient();
-  const canBusinessWrite = user.permissions.includes("business_write");
-  const canTechnicalAdmin = user.permissions.includes("technical_admin");
   // Retry identities live in refs so rerenders cannot turn one user intention
   // into multiple backend commits. Editing the related draft clears the key.
   const singleCommitKey = useRef<string | null>(null);
@@ -638,7 +626,6 @@ export function App({
         </div>
         <div className="header-meta">
           <span className="env">DEV</span>
-          <UserMenu user={user} onLogout={onLogout} />
         </div>
       </header>
       <main>
@@ -669,15 +656,13 @@ export function App({
           </div>
           {!showGlobal && (
             <div className="page-title-actions">
-              {canBusinessWrite && (
-                <button
-                  className="outline"
-                  disabled={!flow}
-                  onClick={() => setShowBatchBuilder(true)}
-                >
-                  Create batch adjustment
-                </button>
-              )}
+              <button
+                className="outline"
+                disabled={!flow}
+                onClick={() => setShowBatchBuilder(true)}
+              >
+                Create batch adjustment
+              </button>
               <button
                 className="primary"
                 disabled={!flow}
@@ -690,7 +675,7 @@ export function App({
                   setShowProxy(true);
                 }}
               >
-                {canBusinessWrite ? "Add proxy trade" : "Preview proxy trade"}{" "}
+                Add proxy trade{" "}
                 <ArrowRight />
               </button>
             </div>
@@ -977,18 +962,12 @@ export function App({
               ) : globalHistory.data?.length ? (
                 <RegisterEntries
                   items={globalHistory.data}
-                  onRevert={
-                    canBusinessWrite
-                      ? (target) => {
-                          revertCommitKey.current = null;
-                          setRevertTarget(target);
-                        }
-                      : undefined
-                  }
+                  onRevert={(target) => {
+                    revertCommitKey.current = null;
+                    setRevertTarget(target);
+                  }}
                   onReconcile={
-                    canTechnicalAdmin
-                      ? (target) => reconcileMut.mutate(target)
-                      : undefined
+                    (target) => reconcileMut.mutate(target)
                   }
                   reconcilingReference={
                     reconcileMut.isPending
@@ -1165,23 +1144,21 @@ export function App({
                         </button>
                       ) : (
                       <>
-                        {canBusinessWrite && (
-                          <button
-                            className="cancel-trade-button"
-                            disabled={cancelPreviewMut.isPending}
-                            onClick={() => cancelPreviewMut.mutate()}
-                          >
-                            {cancelPreviewMut.isPending && (
-                              <Loader2 className="spin" />
-                            )}
-                            Cancel trade
-                          </button>
-                        )}
+                        <button
+                          className="cancel-trade-button"
+                          disabled={cancelPreviewMut.isPending}
+                          onClick={() => cancelPreviewMut.mutate()}
+                        >
+                          {cancelPreviewMut.isPending && (
+                            <Loader2 className="spin" />
+                          )}
+                          Cancel trade
+                        </button>
                         <button
                           className="primary"
                           onClick={() => setTab("adjustment")}
                         >
-                          {canBusinessWrite ? "Modify trade" : "Preview modification"}{" "}
+                          Modify trade{" "}
                           <ArrowRight />
                         </button>
                       </>
@@ -1254,7 +1231,7 @@ export function App({
                   <div className="section-title">
                     <div>
                       <h3>Adjustment inputs</h3>
-                      <p>Only authorized source fields can be changed.</p>
+                      <p>Only configured source fields can be changed.</p>
                     </div>
                     <button
                       className="ghost"
@@ -1376,7 +1353,7 @@ export function App({
                     )
                   }
                   pending={commit.isPending}
-                  canCommit={canBusinessWrite}
+                  canCommit
                 />
               ) : (
                 <div className="blank">
@@ -1426,18 +1403,12 @@ export function App({
                 ) : history.data?.length ? (
                   <RegisterEntries
                     items={history.data}
-                    onRevert={
-                      canBusinessWrite
-                        ? (target) => {
-                            revertCommitKey.current = null;
-                            setRevertTarget(target);
-                          }
-                        : undefined
-                    }
+                    onRevert={(target) => {
+                      revertCommitKey.current = null;
+                      setRevertTarget(target);
+                    }}
                     onReconcile={
-                      canTechnicalAdmin
-                        ? (target) => reconcileMut.mutate(target)
-                        : undefined
+                      (target) => reconcileMut.mutate(target)
                     }
                     reconcilingReference={
                       reconcileMut.isPending
@@ -1556,7 +1527,7 @@ export function App({
           }}
           previewPending={proxyPreviewMut.isPending}
           commitPending={proxyCommitMut.isPending}
-          canCommit={canBusinessWrite}
+          canCommit
           runPreview={() => proxyPreviewMut.mutate()}
           commit={() => proxyCommitMut.mutate()}
           close={() => {
@@ -2124,89 +2095,6 @@ function BatchBuilderDialog({
   );
 }
 
-function UserMenu({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
-  const [open, setOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const initials = user.displayName
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase();
-  const permissionLabels: Record<string, string> = {
-    read: "Read trades and history",
-    preview: "Run adjustment previews",
-    business_write: "Commit and revert adjustments",
-    technical_admin: "Technical health and reconciliation",
-  };
-
-  useEffect(() => {
-    if (!open) return;
-    const closeOnOutside = (event: MouseEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", closeOnOutside);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("mousedown", closeOnOutside);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [open]);
-
-  return (
-    <div className="user-menu" ref={menuRef}>
-      <button
-        className="user-trigger"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
-      >
-        <span className="user-avatar">{initials || <UserRound />}</span>
-        <span className="user-trigger-copy">
-          <strong>{user.displayName}</strong>
-          <small>{user.roles.join(", ").replaceAll("_", " ")}</small>
-        </span>
-        <ChevronDown />
-      </button>
-      {open && (
-        <section className="user-popover" role="dialog" aria-label="User details">
-          <div className="user-popover-head">
-            <span className="user-avatar large">{initials || <UserRound />}</span>
-            <div>
-              <strong>{user.displayName}</strong>
-              <span>{user.email}</span>
-            </div>
-          </div>
-          <div className="user-detail">
-            <span>User ID</span>
-            <code>{user.userId}</code>
-          </div>
-          <div className="user-detail">
-            <span>Application role</span>
-            <strong>{user.roles.join(", ").replaceAll("_", " ")}</strong>
-          </div>
-          <div className="user-permissions">
-            <span>Permissions</span>
-            <ul>
-              {user.permissions.map((permission) => (
-                <li key={permission}>
-                  <Check /> {permissionLabels[permission] ?? permission}
-                </li>
-              ))}
-            </ul>
-          </div>
-          <button className="user-signout" onClick={onLogout}>
-            <LogOut /> Sign out
-          </button>
-        </section>
-      )}
-    </div>
-  );
-}
 function ProxyDialog({
   context,
   fields,

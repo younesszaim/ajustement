@@ -19,45 +19,15 @@ copy the example row ID into another snapshot.
 1. Start the backend.
 2. Open [http://127.0.0.1:8001/docs](http://127.0.0.1:8001/docs). If the API
    uses port `8000`, change the URL accordingly.
-3. Expand **Authentication** → `POST /api/auth/mock-login`.
-4. Click **Try it out**, use `francois.functional`, then **Execute**.
-5. The browser stores the HTTP-only session cookie automatically. Subsequent
-   Swagger requests use that session.
-6. Select an as-of date, version and row through read endpoints before testing
+3. Select an as-of date, version and row through read endpoints before testing
    previews or commits.
-
-Swagger cannot display the HTTP-only cookie to JavaScript, which is expected.
-Confirm the session with `GET /api/auth/me`.
-
-## Roles used for testing
-
-| Username | Role | Use it to test |
-|---|---|---|
-| `alice.reader` | `reader` | Reads and previews; commits must return `403` |
-| `francois.functional` | `functional_admin` | Commit, cancel, proxy, batch and revert |
-| `thomas.technical` | `technical_admin` | Health and reconciliation |
-| `unauthorized.user` | no application role | Authentication succeeds but protected routes return `403` |
-
-Mock login routes return `404` when `AUTH_MODE` is not `mock`.
 
 ## Curl setup
 
-Use a cookie jar so every command shares the authenticated session:
+Set the API base URL once:
 
 ```bash
 export LIMON_API=http://127.0.0.1:8001
-export LIMON_COOKIE=/tmp/limon-api-cookie.txt
-
-curl -sS -c "$LIMON_COOKIE" \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"francois.functional"}' \
-  "$LIMON_API/api/auth/mock-login"
-```
-
-For all following commands:
-
-```bash
-curl -sS -b "$LIMON_COOKIE" "$LIMON_API/api/auth/me"
 ```
 
 Do not store database credentials in these commands. The browser and API never
@@ -68,64 +38,21 @@ need to receive a PostgreSQL or Vertica password from the user.
 Routes marked **read-only** or **preview** do not write business output. Routes
 marked **commit** append output and audit rows.
 
-1. Login and verify identity.
-2. Read dates and versions.
-3. Search a trade, then inspect detail and lineage.
-4. Inspect mappings.
-5. Run impact and preview.
-6. Copy `rowVersion` from preview.
-7. Commit only in a development snapshot.
-8. Read history and lineage again.
-9. Revert the committed batch if required.
-
-## Authentication routes
-
-### `GET /api/auth/mock-users` — read-only
-
-Lists development identities. No session is required.
-
-```bash
-curl -sS "$LIMON_API/api/auth/mock-users"
-```
-
-### `POST /api/auth/mock-login` — session change
-
-Request:
-
-```json
-{
-  "username": "francois.functional"
-}
-```
-
-Expected response contains:
-
-```json
-{
-  "userId": "mock-functional-001",
-  "email": "francois.functional@cacib.example",
-  "displayName": "François Functional",
-  "roles": ["functional_admin"],
-  "permissions": ["business_write", "preview", "read"],
-  "authenticated": true,
-  "hasAccess": true
-}
-```
-
-### `GET /api/auth/me` — read-only
-
-Returns the current identity. Expected failure without a cookie: `401`.
-
-### `POST /api/auth/logout` — session change
-
-Clears the session and returns `204 No Content`.
+1. Read dates and versions.
+2. Search a trade, then inspect detail and lineage.
+3. Inspect mappings.
+4. Run impact and preview.
+5. Copy `rowVersion` from preview.
+6. Commit only in a development snapshot.
+7. Read history and lineage again.
+8. Revert the committed batch if required.
 
 ## Snapshot and trade routes
 
 ### `GET /api/asofdates` — read-only
 
 ```bash
-curl -sS -b "$LIMON_COOKIE" "$LIMON_API/api/asofdates"
+curl -sS "$LIMON_API/api/asofdates"
 ```
 
 Example response:
@@ -137,7 +64,7 @@ Example response:
 ### `GET /api/versions` — read-only
 
 ```bash
-curl -sS -b "$LIMON_COOKIE" \
+curl -sS \
   "$LIMON_API/api/versions?asofdate=2026-08-06"
 ```
 
@@ -193,7 +120,7 @@ Required filters in normal UI usage are `search` and `foSystem`. `pageSize` is
 limited to 100 to protect the API from full-snapshot reads.
 
 ```bash
-curl -sS -G -b "$LIMON_COOKIE" "$LIMON_API/api/trades" \
+curl -sS -G "$LIMON_API/api/trades" \
   --data-urlencode 'asofdate=2026-08-06' \
   --data-urlencode 'asofdateflow=2026-08-07T11:14:09' \
   --data-urlencode 'search=OT-982731' \
@@ -223,7 +150,7 @@ Example response shape:
 ### `GET /api/trades/{row_id}` — read-only
 
 ```bash
-curl -sS -G -b "$LIMON_COOKIE" \
+curl -sS -G \
   "$LIMON_API/api/trades/SIM-ROW-0001" \
   --data-urlencode 'asofdate=2026-08-06' \
   --data-urlencode 'asofdateflow=2026-08-07T11:14:09'
@@ -253,7 +180,7 @@ Uses the same context query parameters as trade detail. Response shape:
 ### `GET /api/trades/{row_id}/history` — read-only
 
 ```bash
-curl -sS -b "$LIMON_COOKIE" \
+curl -sS \
   "$LIMON_API/api/trades/SIM-ROW-0001/history"
 ```
 
@@ -264,7 +191,7 @@ Returns committed and reverted operations across snapshots for that trade.
 Without filters, returns the global register. To filter one snapshot:
 
 ```bash
-curl -sS -G -b "$LIMON_COOKIE" "$LIMON_API/api/adjustments/history" \
+curl -sS -G "$LIMON_API/api/adjustments/history" \
   --data-urlencode 'asofdate=2026-08-06' \
   --data-urlencode 'asofdateflow=2026-08-07T11:14:09'
 ```
@@ -277,13 +204,13 @@ Lists fields controlled by `mapping_config.py` and their manifest-selected
 Parquet source.
 
 ```bash
-curl -sS -b "$LIMON_COOKIE" "$LIMON_API/api/mappings/fields"
+curl -sS "$LIMON_API/api/mappings/fields"
 ```
 
 ### `GET /api/mappings/values` — read-only
 
 ```bash
-curl -sS -G -b "$LIMON_COOKIE" "$LIMON_API/api/mappings/values" \
+curl -sS -G "$LIMON_API/api/mappings/values" \
   --data-urlencode 'field=exposureClass' \
   --data-urlencode 'search=sov' \
   --data-urlencode 'limit=50'
@@ -305,7 +232,7 @@ Example response:
 ### `GET /api/mappings/{mapping_name}/rows` — read-only
 
 ```bash
-curl -sS -G -b "$LIMON_COOKIE" \
+curl -sS -G \
   "$LIMON_API/api/mappings/exposure_class_mapping/rows" \
   --data-urlencode 'search=BANK' \
   --data-urlencode 'page=1' \
@@ -570,12 +497,12 @@ An already-reverted commit is not revertible again.
 Requires `thomas.technical`. Response includes storage mode, project, output
 health, metadata health and active simulated failure point.
 
-### `POST /api/adjustments/{batch_reference}/reconcile` — technical write
+### `POST /api/adjustments/{batch_reference}/reconcile` — write
 
-Requires `thomas.technical`. The body is empty:
+The body is empty:
 
 ```bash
-curl -sS -b "$LIMON_COOKIE" -X POST \
+curl -sS -X POST \
   "$LIMON_API/api/adjustments/ADJ-20260812-123456789012/reconcile"
 ```
 
@@ -588,26 +515,10 @@ does not insert the output rows again.
 | Status | Meaning | What to check |
 |---:|---|---|
 | `200` | Request succeeded | Inspect response and refresh related reads |
-| `204` | Logout succeeded | No response body is expected |
-| `401` | No valid session | Login again; check cookie and expiry |
-| `403` | Role lacks permission | Use the role required by the route |
-| `404` | Mock login disabled or route/reference unavailable | Check `AUTH_MODE`, URL and identifier |
+| `404` | Route or referenced resource unavailable | Check the URL and identifier |
 | `409` | Preview is stale or state conflicts | Refresh trade and generate a new preview |
 | `422` | Payload/domain validation failed | Read the response `detail`; verify context, field and value |
 | `503` | Output/metadata infrastructure failure | Inspect health and reconciliation state |
 
 FastAPI request-schema validation also returns `422` with a structured `detail`
 array. Domain validation returns `422` with a human-readable `detail` string.
-
-## Testing authorization deliberately
-
-Useful negative tests:
-
-1. Login as `alice.reader` and call `/api/adjustments/preview`: expect success.
-2. With the same identity call `/api/adjustments/commit`: expect `403`.
-3. Login as `thomas.technical` and call `/api/health`: expect success.
-4. With that identity call a business commit: expect `403`.
-5. Logout and call `/api/asofdates`: expect `401`.
-
-These checks confirm that authorization is enforced by FastAPI rather than only
-by hidden buttons in React.

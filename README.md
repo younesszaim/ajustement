@@ -62,17 +62,24 @@ Open `http://localhost:5173`. The API is at `http://localhost:8001/docs`.
 For ready-to-use Swagger and `curl` examples for every route, see
 [docs/api-testing-guide.md](docs/api-testing-guide.md).
 
-Local development uses mock SSO by default. Choose one of four identities on
-the login page: reader, functional administrator, technical administrator, or
-an authenticated user without application access. Sessions are signed and
-stored in an HTTP-only cookie.
+For AI agents and new contributors, begin with [AGENTS.md](AGENTS.md), then
+read [docs/ai-agent-guide.md](docs/ai-agent-guide.md). Reusable change
+checklists are in [docs/feature-playbooks.md](docs/feature-playbooks.md). The
+[feature/fix workflow](docs/change-workflow.md), [testing strategy](docs/testing-strategy.md),
+and [architecture decisions](docs/adr/README.md) explain how to evolve the
+application safely. Claude-compatible instructions are provided by
+[CLAUDE.md](CLAUDE.md) and delegate to the same canonical rules. Copy-ready
+feature, fix, review and deployment prompts are in
+[docs/ai-prompts.md](docs/ai-prompts.md).
 
 ## Test and build
 
 ```bash
-cd backend && PYTHONPATH=. pytest
-cd frontend && npm run build
+make check
 ```
+
+The unified check runs backend tests, frontend tests/build, and verifies that
+generated frontend field metadata matches the semantic dictionary.
 
 ## Adjustment accounting
 
@@ -93,36 +100,11 @@ The mock repository mirrors atomicity, idempotency, effective-state lookup, and 
 - Editable inputs: `backend/app/config.py` → `EDITABLE_FIELDS`
 - Additive measures: `backend/app/config.py` → `ADDITIVE_MEASURES`
 - Dependency graph: `FIELD_DEPENDENCIES` and `STAGE_DEPENDENCIES`
-- Authentication: `AUTH_MODE=mock` enables development identities. Set a long
-  random `AUTH_SESSION_SECRET`; it is a backend-only secret.
+- Audit actor: `AUDIT_ACTOR=local-user` identifies actions while the application
+  runs without an authentication layer.
 - Runtime storage: `DATABASE_URL` is a backend-only secret.
 - Project: `ADJUSTMENT_PROJECT_KEY=limon_ldp_bmf` selects the metadata project.
 - Never expose a database URL through a `VITE_` variable.
-
-## Mock SSO and role-based access
-
-The backend is authoritative for authorization. The React UI hides unavailable
-actions, but every API endpoint independently checks the authenticated role.
-
-| Capability | reader | functional_admin | technical_admin |
-|---|:---:|:---:|:---:|
-| Search, lineage, history | yes | yes | yes |
-| Run previews | yes | yes | yes |
-| Commit, cancel, proxy, batch, revert | no | yes | no |
-| Health and retry reconciliation | no | no | yes |
-
-Mock endpoints are available only with `AUTH_MODE=mock`:
-
-- `GET /api/auth/mock-users`
-- `POST /api/auth/mock-login`
-- `GET /api/auth/me`
-- `POST /api/auth/logout`
-
-The stable identity returned to the application contains `userId`, `email`,
-`displayName`, `roles`, and derived permissions. Audit writes use this identity
-instead of a local username. The production CACIB SSO adapter must return the
-same identity shape and map enterprise groups to the internal roles. Mock login
-must be disabled in production.
 
 ## Storage schemas
 
@@ -220,12 +202,11 @@ cd backend
 
 ## Security model
 
-The backend whitelist is the authorization boundary for editable fields.
-Calculated fields are rejected even if a caller bypasses the UI. Authentication
-is pluggable for the future CACIB SSO identity, while the internal application
-roles remain `reader`, `functional_admin`, and `technical_admin`. Mock identities
-exist only when `AUTH_MODE=mock`; authorization is always enforced by FastAPI,
-not only by hidden frontend buttons.
+The backend whitelist is the validation boundary for editable fields.
+Calculated fields are rejected even if a caller bypasses the UI. This branch
+does not provide login, session, role or permission enforcement; protect its
+deployment at the infrastructure level if it is exposed outside a trusted
+development environment.
 
 ## Developer onboarding guide
 
@@ -237,7 +218,7 @@ before changing an endpoint or adding an adjustment type.
 
 | Area | Responsibility | Start here |
 |---|---|---|
-| API composition | Creates dependencies, authorizes endpoints and translates domain errors to HTTP | `backend/app/main.py` |
+| API composition | Creates dependencies and translates domain errors to HTTP | `backend/app/main.py` |
 | Request schemas | Validates HTTP request bodies and shared snapshot context | `backend/app/models.py` |
 | Business workflow | Preview, commit, cancellation, proxy, batch and revert rules | `backend/app/services.py` |
 | Calculation graph | Editable fields, additive measures and stage dependencies | `backend/app/config.py` |
@@ -255,7 +236,6 @@ before changing an endpoint or adding an adjustment type.
 | Frontend orchestration | Queries, mutations, workspace state and dialogs | `frontend/src/App.tsx` |
 | API client | The browser's typed REST boundary | `frontend/src/api.ts` |
 | Shared UI types | API response and request shapes used by React | `frontend/src/types.ts` |
-| Authentication UI | Mock login and session bootstrap | `frontend/src/AuthGate.tsx` |
 
 ### Communication levels
 
@@ -263,8 +243,8 @@ The application deliberately separates five communication levels:
 
 1. **Browser state:** React owns temporary selections, drafts, previews and
    dialogs. Refreshing the page removes drafts but never committed data.
-2. **HTTP API:** FastAPI authenticates the session, validates payloads and
-   returns stable JSON shapes. The frontend never connects to a database.
+2. **HTTP API:** FastAPI validates payloads and returns stable JSON shapes. The
+   frontend never connects to a database.
 3. **Domain service:** `AdjustmentService` applies business invariants and
    creates the rows that an operation would write.
 4. **Repository boundary:** repositories hide whether output and metadata live
@@ -342,7 +322,7 @@ names or be supported with an explicit compatibility alias during migration.
 ```mermaid
 flowchart LR
     User["User"] --> UI["React workspace"]
-    UI -->|"JSON + session cookie"| API["FastAPI endpoints"]
+    UI -->|"JSON over HTTP"| API["FastAPI endpoints"]
     API --> Domain["AdjustmentService"]
     Domain --> Calc["LiMon calculation adapter"]
     Domain --> Map["Manifest + Parquet mappings"]
@@ -403,7 +383,7 @@ writing.
 
 ```mermaid
 sequenceDiagram
-    actor U as Functional administrator
+    actor U as User
     participant UI as React
     participant API as FastAPI
     participant S as AdjustmentService
@@ -412,7 +392,7 @@ sequenceDiagram
     participant O as Vertica output
     participant P as PostgreSQL metadata
 
-    U->>UI: Change authorized fields
+    U->>UI: Change configured editable fields
     UI->>API: POST /api/adjustments/impact
     API-->>UI: impacted calculation stages
     U->>UI: Run preview
@@ -426,7 +406,7 @@ sequenceDiagram
     S-->>UI: original + reversal + replacement + rowVersion
     U->>UI: Apply adjustment with reason
     UI->>API: POST /api/adjustments/commit + idempotencyKey
-    API->>S: commit(request, authenticated email)
+    API->>S: commit(request, configured audit actor)
     S->>O: re-read effective row
     S->>S: compare expectedVersion
     S->>P: reserve idempotent request
@@ -633,8 +613,6 @@ has reconstructed a complete committed batch.
   as `422`.
 - **Conflict:** stale version or incompatible current state; returned as `409`.
 - **Infrastructure error:** storage or coordination failure; returned as `503`.
-- **Authentication/authorization:** missing session or permission; returned as
-  `401` or `403`.
 
 The frontend catches every failed mutation and displays the backend `detail`
 message in the application notice. It must not report success until the API
@@ -649,9 +627,9 @@ For a new adjustment type:
 3. Keep output construction deterministic and append-only.
 4. Add repository methods only when existing generic commit methods cannot
    represent the operation.
-5. Add an authenticated endpoint with the narrowest permission.
-6. Persist action type, snapshots, user, reason and idempotency reference.
-7. Add domain tests, authorization tests and failure/retry tests.
+5. Add an API endpoint with validated request and response models.
+6. Persist action type, snapshots, audit actor, reason and idempotency reference.
+7. Add domain, API and failure/retry tests.
 8. Add typed frontend API methods and response types.
 9. Invalidate the affected React Query caches after success.
 
