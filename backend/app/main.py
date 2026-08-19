@@ -40,6 +40,7 @@ from .services import (
 )
 from .mappings import build_mapping_provider
 from .config import BATCH_FILTER_FIELDS
+from .project_config import controlled_fields_payload
 
 storage_mode = "vertica_sim+adjustment_meta"
 app = FastAPI(
@@ -52,7 +53,6 @@ app = FastAPI(
     ),
     openapi_tags=[
         {"name": "Snapshots and trades", "description": "Read one LiMon as-of date and version."},
-        {"name": "Mappings", "description": "Controlled values read from manifest-selected Parquet."},
         {"name": "Adjustments", "description": "Impact, preview and durable business writes."},
         {"name": "Operations", "description": "Technical health and reconciliation."},
     ],
@@ -177,6 +177,7 @@ def trades(
     asofdateflow: str,
     search: str = "",
     foSystem: str = "",
+    securityLegFlag: int | None = Query(None, ge=0, le=1),
     page: int = Query(1, ge=1),
     pageSize: int = Query(10, ge=1, le=100),
 ):
@@ -188,10 +189,12 @@ def trades(
     """
     try:
         context = LimonContext(asofdate=asofdate, asofdateflow=asofdateflow)
-        items, total = repo.search(context, search, foSystem, page, pageSize)
+        items, total = repo.search(
+            context, search, foSystem, securityLegFlag, page, pageSize
+        )
         audit(
             "TRADE_SEARCHED",
-            {"search": search, "foSystem": foSystem, "page": page, "resultRows": total},
+            {"search": search, "foSystem": foSystem, "securityLegFlag": securityLegFlag, "page": page, "resultRows": total},
             context,
         )
         return {"items": items, "total": total}
@@ -245,34 +248,10 @@ def global_history(
     return repo.get_global_history(asofdate, asofdateflow)
 
 
-@app.get("/api/mappings/fields", tags=["Mappings"])
-def mapped_fields():
-    return mapping_provider.fields()
-
-
-@app.get("/api/mappings/values", tags=["Mappings"])
-def mapping_values(
-    field: str,
-    search: str = "",
-    limit: int = Query(50, ge=1, le=200),
-):
-    try:
-        return mapping_provider.values(field, search, limit)
-    except DomainError as exc:
-        fail(exc)
-
-
-@app.get("/api/mappings/{mapping_name}/rows", tags=["Mappings"])
-def mapping_rows(
-    mapping_name: str,
-    search: str = "",
-    page: int = Query(1, ge=1),
-    pageSize: int = Query(20, ge=1, le=100),
-):
-    try:
-        return mapping_provider.rows(mapping_name, search, page, pageSize)
-    except DomainError as exc:
-        fail(exc)
+@app.get("/api/adjustment-options", tags=["Adjustments"])
+def adjustment_options():
+    """Return project-configured values accepted for controlled fields."""
+    return controlled_fields_payload()
 
 
 @app.post("/api/adjustments/impact", tags=["Adjustments"])

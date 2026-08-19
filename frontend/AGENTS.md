@@ -228,14 +228,14 @@ Never reload the page or clear all cache as synchronization.
 - Do not embed large forms in cells; open the established workspace.
 - Test row derivation/order, not AG Grid internals.
 
-## Mapping controls
+## Controlled adjustment fields
 
-- Load options through `api.mappingValues`; never embed business options.
-- Search/paginate mapping tables through the API; React never reads Parquet.
+- Load dropdown definitions through `api.adjustmentOptions`; the source of truth
+  is backend `project_config.py`, not duplicated component constants.
+- Render ordinary accessible selects for the small reviewed option lists.
 - Manual output selection does not rewrite upstream inputs.
-- Show mapping name/source/output/downstream stages with compact hierarchy.
-- Popovers stay in viewport and scroll internally.
-- Backend validates selected values again even when chosen from the popup.
+- Show controlled selections and downstream stages in preview/history.
+- Backend validates selected values again even when chosen from the select.
 
 ## HTTP client and error contract
 
@@ -265,12 +265,12 @@ Mutation errors must:
 - Dialogs have accessible names, close actions, and explicit primary actions.
 - Loading controls are disabled and visibly announce progress.
 - Do not communicate active/cancelled/error state by color alone.
-- Mapping and grid workflows remain keyboard reachable.
+- Controlled selects and grid workflows remain keyboard reachable.
 
 ## Styling ownership
 
 - Follow existing shadcn-style primitives and CACIB white/green patterns.
-- Put feature rules in the named CSS file (`batch.css`, `mapping.css`,
+- Put feature rules in the named CSS file (`batch.css`, `trade-history.css`,
   `trade-history.css`, etc.), not unrelated global files.
 - Keep overlay stacking in `dialog-layer.css` or its owning overlay stylesheet.
 - Reuse button/state classes. Destructive actions are red; normal primary

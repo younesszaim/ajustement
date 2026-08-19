@@ -15,11 +15,9 @@ import {
   AlertCircle,
   ArrowRight,
   CalendarDays,
-  BookOpen,
   Check,
   ChevronLeft,
   ChevronRight,
-  ChevronsUpDown,
   Clock3,
   History,
   Loader2,
@@ -37,7 +35,6 @@ import type {
   Preview,
   ProxyFields,
   Trade,
-  MappedField,
 } from "./types";
 const money = new Intl.NumberFormat("en-GB", {
   minimumFractionDigits: 2,
@@ -65,12 +62,13 @@ const editable = [
   ["issue", "text"],
   ["maturityDate", "date"],
   ["valueDate", "date"],
-  ["amount", "number"],
+  ["cashAmountEur", "number"],
+  ["securityAmountEur", "number"],
   ["currency", "select"],
   ["counterparty", "text"],
-  ["exposureClass", "mapping"],
-  ["hqlaLevel", "mapping"],
-  ["reportingLineLcr", "mapping"],
+  ["exposureClass", "controlled"],
+  ["hqlaLevel", "controlled"],
+  ["reportingLineLcr", "controlled"],
 ] as const;
 const summary = [
   "tradeNo",
@@ -83,6 +81,9 @@ const summary = [
   "maturityDate",
   "currency",
   "amount",
+  "securityLegFlag",
+  "cashAmountEur",
+  "securityAmountEur",
   "hqlaLevel",
   "reportingLineLcr",
   "lcrOutflow",
@@ -104,7 +105,8 @@ export function App() {
     [flow, setFlow] = useState(""),
     [tradeFilter, setTradeFilter] = useState(""),
     [fo, setFo] = useState(""),
-    [submitted, setSubmitted] = useState<{ trade: string; fo: string } | null>(
+    [legFilter, setLegFilter] = useState<"" | "0" | "1">(""),
+    [submitted, setSubmitted] = useState<{ trade: string; fo: string; leg: 0 | 1 } | null>(
       null,
     ),
     [page, setPage] = useState(1),
@@ -144,17 +146,16 @@ export function App() {
       counterparty: "",
     }),
     [proxyPreview, setProxyPreview] = useState<Preview | null>(null),
-    [proxyReason, setProxyReason] = useState(""),
-    [mappingTable, setMappingTable] = useState<MappedField | null>(null);
+    [proxyReason, setProxyReason] = useState("");
   // Query keys mirror backend scope. Context and filter changes must create a
   // new cache entry rather than display rows from an earlier LiMon version.
   const dates = useQuery({ queryKey: ["dates"], queryFn: api.dates });
-  const mappedFields = useQuery({
-    queryKey: ["mapped-fields"],
-    queryFn: api.mappedFields,
+  const controlledFields = useQuery({
+    queryKey: ["adjustment-options"],
+    queryFn: api.adjustmentOptions,
   });
-  const mappingByField = new Map(
-    mappedFields.data?.map((definition) => [definition.fieldName, definition]),
+  const optionsByField = new Map(
+    controlledFields.data?.map((definition) => [definition.fieldName, definition]),
   );
   useEffect(() => {
     if (!date && dates.data?.length) setDate(dates.data[0]);
@@ -177,7 +178,7 @@ export function App() {
   const canSearch = !!flow && !!submitted?.trade && !!submitted.fo;
   const trades = useQuery({
     queryKey: ["trades", ctx, submitted, page],
-    queryFn: () => api.trades(ctx, submitted!.trade, submitted!.fo, page),
+    queryFn: () => api.trades(ctx, submitted!.trade, submitted!.fo, submitted!.leg, page),
     enabled: canSearch,
   });
   const detail = useQuery({
@@ -567,8 +568,8 @@ export function App() {
     clearContext();
   };
   const search = () => {
-    if (!tradeFilter.trim() || !fo) return;
-    setSubmitted({ trade: tradeFilter.trim(), fo });
+    if (!tradeFilter.trim() || !fo || legFilter === "") return;
+    setSubmitted({ trade: tradeFilter.trim(), fo, leg: Number(legFilter) as 0 | 1 });
     setPage(1);
     setSelected("");
   };
@@ -1009,13 +1010,22 @@ export function App() {
               ))}
             </select>
           </label>
+          <label>
+            <span>Leg type</span>
+            <select value={legFilter} onChange={(e) => setLegFilter(e.target.value as "" | "0" | "1")}>
+              <option value="">Select leg type</option>
+              <option value="0">Cash (0)</option>
+              <option value="1">Titre (1)</option>
+            </select>
+          </label>
           <div className="search-actions">
-            {(tradeFilter || fo || submitted) && (
+            {(tradeFilter || fo || legFilter || submitted) && (
               <button
                 className="outline"
                 onClick={() => {
                   setTradeFilter("");
                   setFo("");
+                  setLegFilter("");
                   setSubmitted(null);
                   setSelected("");
                   setPage(1);
@@ -1026,7 +1036,7 @@ export function App() {
             )}
             <button
               className="primary"
-              disabled={!flow || !tradeFilter.trim() || !fo}
+              disabled={!flow || !tradeFilter.trim() || !fo || legFilter === ""}
               onClick={search}
             >
               Search
@@ -1231,7 +1241,9 @@ export function App() {
                   <div className="section-title">
                     <div>
                       <h3>Adjustment inputs</h3>
-                      <p>Only configured source fields can be changed.</p>
+                      <p>
+                        Leg context: <strong>{Number(detail.data.securityLegFlag) === 0 ? "Cash (0)" : "Titre (1)"}</strong>. Only its applicable amount is editable.
+                      </p>
                     </div>
                     <button
                       className="ghost"
@@ -1244,7 +1256,10 @@ export function App() {
                       Reset
                     </button>
                   </div>
-                  {editable.map(([field, type]) => {
+                  {editable.filter(([field]) => {
+                    const leg = Number(detail.data!.securityLegFlag);
+                    return field !== (leg === 0 ? "securityAmountEur" : "cashAmountEur");
+                  }).map(([field, type]) => {
                     const changed = field in changes;
                     return (
                       <div
@@ -1259,17 +1274,18 @@ export function App() {
                         <ArrowRight className="arrow" />
                         <div>
                           <small>Adjusted</small>
-                          {type === "mapping" && mappingByField.get(field) ? (
-                            <MappingValueSelector
-                              definition={mappingByField.get(field)!}
-                              value={String(
-                                changes[field] ?? detail.data![field] ?? "",
-                              )}
-                              onChange={(value) => change(field, value)}
-                              viewTable={() =>
-                                setMappingTable(mappingByField.get(field)!)
-                              }
-                            />
+                          {type === "controlled" && optionsByField.get(field) ? (
+                            <select
+                              value={String(changes[field] ?? detail.data![field] ?? "")}
+                              onChange={(event) => change(field, event.target.value)}
+                            >
+                              {Array.from(new Set([
+                                String(changes[field] ?? detail.data![field] ?? ""),
+                                ...optionsByField.get(field)!.options,
+                              ].filter(Boolean))).map((option) => (
+                                <option key={option}>{option}</option>
+                              ))}
+                            </select>
                           ) : type === "select" ? (
                             <select
                               value={String(
@@ -1556,12 +1572,6 @@ export function App() {
           }}
         />
       )}
-      {mappingTable && (
-        <MappingTableDialog
-          definition={mappingTable}
-          close={() => setMappingTable(null)}
-        />
-      )}
       {revertTarget && (
         <div className="modal-back">
           <div className="modal revert-modal">
@@ -1625,223 +1635,6 @@ export function App() {
     </>
   );
 }
-function MappingValueSelector({
-  definition,
-  value,
-  onChange,
-  viewTable,
-}: {
-  definition: MappedField;
-  value: string;
-  onChange: (value: string) => void;
-  viewTable: () => void;
-}) {
-  // Values load only while open. Position is calculated against the workspace
-  // so mapping selectors near its bottom open upward instead of being clipped.
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const [openAbove, setOpenAbove] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
-  const values = useQuery({
-    queryKey: ["mapping-values", definition.fieldName, search],
-    queryFn: () => api.mappingValues(definition.fieldName, search),
-    enabled: open,
-  });
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: MouseEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [open]);
-  return (
-    <div className="mapping-selector" ref={root}>
-      <button
-        className="mapping-trigger"
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        onClick={() => {
-          if (!open && root.current) {
-            const trigger = root.current.getBoundingClientRect();
-            const boundary = root.current
-              .closest(".details")
-              ?.getBoundingClientRect();
-            const boundaryTop = Math.max(boundary?.top ?? 0, 0);
-            const boundaryBottom = Math.min(
-              boundary?.bottom ?? window.innerHeight,
-              window.innerHeight,
-            );
-            const spaceAbove = trigger.top - boundaryTop;
-            const spaceBelow = boundaryBottom - trigger.bottom;
-            setOpenAbove(spaceBelow < 360 && spaceAbove > spaceBelow);
-          }
-          setOpen((current) => !current);
-        }}
-      >
-        <span>{value || "Select a mapped value"}</span>
-        <ChevronsUpDown />
-      </button>
-      {open && (
-        <div
-          className={`mapping-popover ${openAbove ? "open-above" : ""}`}
-        >
-          <div className="mapping-search">
-            <Search />
-            <input
-              autoFocus
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search possible values…"
-            />
-          </div>
-          <div className="mapping-options" role="listbox">
-            {values.isLoading ? (
-              <span className="mapping-empty"><Loader2 className="spin" /> Loading…</span>
-            ) : values.data?.values.length ? (
-              values.data.values.map((option) => (
-                <button
-                  role="option"
-                  aria-selected={option === value}
-                  key={option}
-                  onClick={() => {
-                    onChange(option);
-                    setOpen(false);
-                  }}
-                >
-                  <Check />
-                  <span>{option}</span>
-                </button>
-              ))
-            ) : (
-              <span className="mapping-empty">No mapping value found.</span>
-            )}
-          </div>
-          <div className="mapping-source">
-            <div>
-              <span>Latest mapping</span>
-              <strong>{definition.mappingName}</strong>
-            </div>
-            <button
-              onClick={() => {
-                setOpen(false);
-                viewTable();
-              }}
-            >
-              <BookOpen /> View mapping table
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function MappingTableDialog({
-  definition,
-  close,
-}: {
-  definition: MappedField;
-  close: () => void;
-}) {
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const rows = useQuery({
-    queryKey: ["mapping-rows", definition.mappingName, search, page],
-    queryFn: () => api.mappingRows(definition.mappingName, search, page),
-  });
-  const columns = Array.from(
-    new Set(
-      rows.data?.items.flatMap((item) =>
-        Object.keys(item).filter((key) => key !== "rowNumber"),
-      ) ?? [],
-    ),
-  );
-  return (
-    <div className="modal-back mapping-table-back">
-      <section className="mapping-table-dialog">
-        <header className="mapping-dialog-header">
-          <div>
-            <h2>Mapping table</h2>
-            <p>{definition.description}</p>
-          </div>
-          <button onClick={close} aria-label="Close mapping table">×</button>
-        </header>
-        <div className="mapping-table-meta" aria-label="Mapping details">
-          <div>
-            <span>Field</span>
-            <strong>{definition.displayName}</strong>
-          </div>
-          <div>
-            <span>Mapping</span>
-            <strong>{definition.mappingName}</strong>
-          </div>
-          <div>
-            <span>Output column</span>
-            <strong>{definition.outputColumn}</strong>
-          </div>
-          <details>
-            <summary>Source</summary>
-            <code title={definition.sourcePath}>{definition.sourcePath}</code>
-          </details>
-        </div>
-        <label className="mapping-table-search">
-          <Search />
-          <input
-            value={search}
-            onChange={(event) => {
-              setSearch(event.target.value);
-              setPage(1);
-            }}
-            placeholder="Filter mapping rows…"
-          />
-        </label>
-        <div className="mapping-table-scroll">
-          {rows.isLoading ? (
-            <div className="empty"><Loader2 className="spin" /> Loading mapping…</div>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>#</th>
-                  {columns.map((column) => <th key={column}>{column}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.data?.items.map((item) => (
-                  <tr key={item.rowNumber}>
-                    <td>{item.rowNumber}</td>
-                    {columns.map((column) => (
-                      <td key={column} className={column === definition.outputColumn ? "mapping-output" : ""}>
-                        {fmt(item[column])}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-        <footer>
-          <span>{rows.data?.total ?? 0} mapping row(s)</span>
-          <div>
-            <button disabled={page === 1} onClick={() => setPage((value) => value - 1)}>
-              <ChevronLeft /> Previous
-            </button>
-            <span>Page {page}</span>
-            <button
-              disabled={page * 20 >= (rows.data?.total ?? 0)}
-              onClick={() => setPage((value) => value + 1)}
-            >
-              Next <ChevronRight />
-            </button>
-          </div>
-        </footer>
-      </section>
-    </div>
-  );
-}
-
 function BatchBuilderDialog({
   context,
   close,
@@ -1855,6 +1648,7 @@ function BatchBuilderDialog({
   ) => void;
 }) {
   const [foSystem, setFoSystem] = useState("");
+  const [legFilter, setLegFilter] = useState<"" | "0" | "1">("");
   const [step, setStep] = useState<"select" | "adjust">("select");
   const [selected, setSelected] = useState<Map<string, Trade>>(new Map());
   const [changesByRow, setChangesByRow] = useState<
@@ -1865,18 +1659,13 @@ function BatchBuilderDialog({
     queryKey: ["fo-systems", context],
     queryFn: () => api.foSystems(context),
   });
-  const exposureValues = useQuery({
-    queryKey: ["mapping-values", "exposureClass", ""],
-    queryFn: () => api.mappingValues("exposureClass"),
+  const controlledFields = useQuery({
+    queryKey: ["adjustment-options"],
+    queryFn: api.adjustmentOptions,
   });
-  const hqlaValues = useQuery({
-    queryKey: ["mapping-values", "hqlaLevel", ""],
-    queryFn: () => api.mappingValues("hqlaLevel"),
-  });
-  const reportingValues = useQuery({
-    queryKey: ["mapping-values", "reportingLineLcr", ""],
-    queryFn: () => api.mappingValues("reportingLineLcr"),
-  });
+  const optionsByField = new Map(
+    controlledFields.data?.map((definition) => [definition.fieldName, definition.options]),
+  );
   const preview = useMutation({
     mutationFn: () =>
       api.previewBatch(
@@ -1967,7 +1756,7 @@ function BatchBuilderDialog({
   const dataSource = useMemo(
     () => ({
       getRows: async (params: IGetRowsParams<Trade>) => {
-        if (!foSystem) {
+        if (!foSystem || legFilter === "") {
           params.successCallback([], 0);
           return;
         }
@@ -1977,7 +1766,10 @@ function BatchBuilderDialog({
           const result = await api.batchTrades(
             context,
             foSystem,
-            toApiFilters(params.filterModel),
+            {
+              ...toApiFilters(params.filterModel),
+              securityLegFlag: Number(legFilter) as 0 | 1,
+            },
             page,
             pageSize,
           );
@@ -1987,7 +1779,7 @@ function BatchBuilderDialog({
         }
       },
     }),
-    [context.asofdate, context.asofdateflow, foSystem],
+    [context.asofdate, context.asofdateflow, foSystem, legFilter],
   );
   useEffect(() => {
     if (gridApi.current) gridApi.current.setGridOption("datasource", dataSource);
@@ -2006,7 +1798,8 @@ function BatchBuilderDialog({
   const updateChange = (rowId: string, field: string, value: string) =>
     setChangesByRow((current) => {
       const row = { ...(current[rowId] ?? {}) };
-      const typedValue = field === "amount" ? Number(value) : value;
+      const numericFields = new Set(["amount", "cashAmountEur", "securityAmountEur"]);
+      const typedValue = numericFields.has(field) ? Number(value) : value;
       const original = selected.get(rowId)?.[field];
       if (value === "" || Object.is(original, typedValue)) delete row[field];
       else row[field] = typedValue;
@@ -2035,6 +1828,10 @@ function BatchBuilderDialog({
                 setFoSystem(event.target.value);
                 setSelected(new Map());
               }}><option value="">Select an FO system</option>{foSystems.data?.map((system) => <option key={system}>{system}</option>)}</select></label>
+              <label><span>Leg type *</span><select value={legFilter} onChange={(event) => {
+                setLegFilter(event.target.value as "" | "0" | "1");
+                setSelected(new Map());
+              }}><option value="">Select leg type</option><option value="0">Cash (0)</option><option value="1">Titre (1)</option></select></label>
               <div><strong>{selected.size}</strong><span>selected</span></div>
               <button onClick={() => { setSelected(new Map()); gridApi.current?.deselectAll(); }} disabled={!selected.size}>Clear selection</button>
             </div>
@@ -2056,7 +1853,7 @@ function BatchBuilderDialog({
                 getRowId={({ data }) => data.rowId}
                 onGridReady={(event: GridReadyEvent<Trade>) => { gridApi.current = event.api; }}
                 onSelectionChanged={selectionChanged}
-                overlayNoRowsTemplate={foSystem ? "No active trade matches these filters" : "Select an FO system"}
+                overlayNoRowsTemplate={foSystem && legFilter !== "" ? "No active trade matches these filters" : "Select an FO system and leg type"}
               />
             </div>
           </>
@@ -2065,18 +1862,19 @@ function BatchBuilderDialog({
             <div className="batch-adjust-intro"><strong>{selected.size} selected trades</strong><span>Set at least one change for every trade. Each editor uses the same original → adjusted layout as the single-trade workspace.</span></div>
             {Array.from(selected.values()).map((trade, index) => {
               const changes = changesByRow[trade.rowId] ?? {};
+              const leg = Number(trade.securityLegFlag);
               const fields: Array<[string, string, string, string[]?]> = [
-                ["amount", "Amount", "number"],
+                [leg === 0 ? "cashAmountEur" : "securityAmountEur", leg === 0 ? "Cash amount EUR" : "Security amount EUR", "number"],
                 ["currency", "Currency", "select", ["EUR", "USD", "GBP", "JPY"]],
                 ["maturityDate", "Maturity date", "date"],
-                ["exposureClass", "Exposure class", "select", exposureValues.data?.values ?? []],
-                ["hqlaLevel", "HQLA", "select", hqlaValues.data?.values ?? []],
-                ["reportingLineLcr", "Reporting line LCR", "select", reportingValues.data?.values ?? []],
+                ["exposureClass", "Exposure class", "select", optionsByField.get("exposureClass") ?? []],
+                ["hqlaLevel", "HQLA", "select", optionsByField.get("hqlaLevel") ?? []],
+                ["reportingLineLcr", "Reporting line LCR", "select", optionsByField.get("reportingLineLcr") ?? []],
               ];
               return <article className="batch-trade-editor" key={trade.rowId}>
                 <header><div><span>TRADE {index + 1}</span><strong>{trade.tradeNo}</strong><small>{trade.portfolio} · {trade.counterparty}</small></div><button onClick={() => setSelected((current) => { const next = new Map(current); next.delete(trade.rowId); return next; })}>Remove</button></header>
                 <div className="batch-editor-fields">{fields.map(([field, label, type, options]) => <div className={field in changes ? "changed" : ""} key={field}>
-                  <label>{label}</label><span><small>Original</small><strong>{fmt(trade[field])}</strong></span><ArrowRight /><span><small>Adjusted</small>{type === "select" ? <select value={String(changes[field] ?? "")} onChange={(e) => updateChange(trade.rowId, field, e.target.value)}><option value="">Unchanged</option>{options?.map((option) => <option key={option}>{option}</option>)}</select> : <input type={type} value={String(changes[field] ?? "")} placeholder={String(trade[field] ?? "")} onChange={(e) => updateChange(trade.rowId, field, e.target.value)} />}</span>
+                  <label>{label}</label><span><small>Original</small><strong>{fmt(trade[field])}</strong></span><ArrowRight /><span><small>Adjusted</small>{type === "select" ? <select value={String(changes[field] ?? "")} onChange={(e) => updateChange(trade.rowId, field, e.target.value)}><option value="">Unchanged</option>{options?.map((option) => <option key={option} value={option}>{option}</option>)}</select> : <input type={type} value={String(changes[field] ?? "")} placeholder={String(trade[field] ?? "")} onChange={(e) => updateChange(trade.rowId, field, e.target.value)} />}</span>
                 </div>)}</div>
               </article>;
             })}
@@ -2543,12 +2341,12 @@ function HistoryEntry({
             </div>
           </div>
           <blockquote>{h.reason}</blockquote>
-          {!!h.mappingOverrides?.length && (
-            <div className="history-mapping-overrides">
-              {h.mappingOverrides.map((override) => (
-                <span key={override.field}>
-                  Manual mapping override · {override.displayName}:{" "}
-                  <strong>{fmt(override.value)}</strong>
+          {!!h.controlledSelections?.length && (
+            <div className="history-controlled-selections">
+              {h.controlledSelections.map((selection) => (
+                <span key={selection.field}>
+                  Configured selection · {selection.displayName}:{" "}
+                  <strong>{fmt(selection.value)}</strong>
                 </span>
               ))}
             </div>
@@ -2795,14 +2593,14 @@ function PreviewView({
               <span>Difference</span>
             </div>
             {preview.differences.map((difference) => {
-              const override = preview.mappingOverrides?.find(
+              const selection = preview.controlledSelections?.find(
                 (item) => item.field === difference.field,
               );
               return (
                 <div className="result-row" key={difference.field}>
                   <span className="result-field">
                     <strong>{difference.label}</strong>
-                    {override && <small>Manual mapping selection</small>}
+                    {selection && <small>Configured selection</small>}
                   </span>
                   <span className="result-before">{fmt(difference.current)}</span>
                   <strong className="result-after">
@@ -2849,23 +2647,23 @@ function PreviewView({
           </div>
         </div>
 
-        {!!preview.mappingOverrides?.length && (
-          <div className="mapping-decisions">
-            <div className="mapping-decisions-title">
-              <strong>Selected mapping values</strong>
-              <span>Manual values used in this preview</span>
+        {!!preview.controlledSelections?.length && (
+          <div className="controlled-decisions">
+            <div className="controlled-decisions-title">
+              <strong>Selected controlled values</strong>
+              <span>Project-configured values used in this preview</span>
             </div>
-            <div className="mapping-decision-head">
+            <div className="controlled-decision-head">
               <span>Field</span>
               <span>Selected value</span>
               <span>Recalculated afterwards</span>
             </div>
-            {preview.mappingOverrides.map((override) => (
-              <div className="mapping-decision-row" key={override.field}>
-                <strong>{override.displayName}</strong>
-                <span>{fmt(override.value)}</span>
+            {preview.controlledSelections.map((selection) => (
+              <div className="controlled-decision-row" key={selection.field}>
+                <strong>{selection.displayName}</strong>
+                <span>{fmt(selection.value)}</span>
                 <span>
-                  {override.downstreamStages
+                  {selection.downstreamStages
                     .map((stage) => stage.replaceAll("_", " "))
                     .join(" → ") || "No downstream stage"}
                 </span>

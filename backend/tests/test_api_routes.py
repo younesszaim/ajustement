@@ -12,6 +12,17 @@ def test_openapi_does_not_expose_authentication_routes():
     assert not any(path.startswith("/api/auth") for path in main.app.openapi()["paths"])
 
 
+def test_adjustment_options_replace_public_mapping_routes():
+    paths = main.app.openapi()["paths"]
+    assert "/api/adjustment-options" in paths
+    assert not any(path.startswith("/api/mappings") for path in paths)
+    response = api_client().get("/api/adjustment-options")
+    assert response.status_code == 200
+    assert "L1" in next(
+        item["options"] for item in response.json() if item["fieldName"] == "hqlaLevel"
+    )
+
+
 def test_asofdates_route_returns_repository_dates(monkeypatch):
     class Repository:
         def asofdates(self):

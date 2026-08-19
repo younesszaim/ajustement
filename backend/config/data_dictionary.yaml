@@ -14,6 +14,9 @@ fields:
   maturity_date: {api: maturityDate, db: maturity_date, label: Maturity date, type: date, editable: true, starts: [buckets]}
   currency: {api: currency, db: currency, parquet: CURRENCY, label: Currency, type: string, editable: true, starts: [eur_amount]}
   amount: {api: amount, db: amount, label: Amount, type: decimal, editable: true, additive: true, starts: [eur_amount, buckets]}
+  security_leg_flag: {api: securityLegFlag, db: security_leg_flag, label: Leg, type: integer}
+  cash_amount_eur: {api: cashAmountEur, db: cash_amount_eur, label: Cash amount EUR, type: decimal, editable: true, additive: true, starts: [leg_amount]}
+  security_amount_eur: {api: securityAmountEur, db: security_amount_eur, label: Security amount EUR, type: decimal, editable: true, additive: true, starts: [leg_amount]}
   portfolio: {api: portfolio, db: portfolio, label: Portfolio, type: string}
   counterparty: {api: counterparty, db: counterparty, parquet: COUNTERPARTY, label: Counterparty, type: string, editable: true, starts: [counterparty_enrichment]}
   counterparty_type: {api: counterpartyType, parquet: COUNTERPARTY_TYPE, label: Counterparty type, type: string, producer: counterparty_enrichment}
@@ -31,6 +34,12 @@ fields:
   lcr_outflow_factor: {api: lcrOutflowFactor, parquet: OUTFLOW_FACTOR, label: LCR outflow factor, type: decimal, producer: lcr_impacts}
   lcr_inflow: {api: lcrInflow, db: lcr_inflow, label: LCR inflow, type: decimal, producer: lcr_impacts, additive: true}
   lcr_outflow: {api: lcrOutflow, db: lcr_outflow, label: LCR outflow, type: decimal, producer: lcr_impacts, additive: true}
+  ldp_impact_asset: {api: ldpImpactAsset, db: ldp_impact_asset, label: LDP impact asset, type: decimal, producer: ldp_impacts, additive: true}
+  ldp_impact_asset_cash_gestion: {api: ldpImpactAssetCashGestion, db: ldp_impact_asset_cash_gestion, label: LDP impact asset cash gestion, type: decimal, producer: ldp_impacts, additive: true}
+  ldp_impact_inflow: {api: ldpImpactInflow, db: ldp_impact_inflow, label: LDP impact inflow, type: decimal, producer: ldp_impacts, additive: true}
+  ldp_impact_outflow: {api: ldpImpactOutflow, db: ldp_impact_outflow, label: LDP impact outflow, type: decimal, producer: ldp_impacts, additive: true}
+  ldp_impact_lcr_reglementaire: {api: ldpImpactLcrReglementaire, db: ldp_impact_lcr_reglementaire, label: LDP impact LCR réglementaire, type: decimal, producer: ldp_impacts, additive: true}
+  ldp_impact_lcr_gestion: {api: ldpImpactLcrGestion, db: ldp_impact_lcr_gestion, label: LDP impact LCR gestion, type: decimal, producer: ldp_impacts, additive: true}
   reserve: {api: reserve, db: reserve_amount, label: Reserve, type: decimal, additive: true}
   record_type: {api: recordType, db: record_type, label: Record type, type: string}
   asofdate: {api: asofdate, db: asofdate, label: As-of date, type: date}

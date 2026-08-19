@@ -66,7 +66,8 @@ For AI agents and new contributors, begin with [AGENTS.md](AGENTS.md), then
 read [docs/ai-agent-guide.md](docs/ai-agent-guide.md). Reusable change
 checklists are in [docs/feature-playbooks.md](docs/feature-playbooks.md). The
 [feature/fix workflow](docs/change-workflow.md), [testing strategy](docs/testing-strategy.md),
-and [architecture decisions](docs/adr/README.md) explain how to evolve the
+dedicated [field-extension guide](docs/adding-fields-guide.md), and
+[architecture decisions](docs/adr/README.md) explain how to evolve the
 application safely. Claude-compatible instructions are provided by
 [CLAUDE.md](CLAUDE.md) and delegate to the same canonical rules. Copy-ready
 feature, fix, review and deployment prompts are in
@@ -140,33 +141,32 @@ For an existing database, apply
 `backend/migrations/002_cancel_and_proxy_adjustments.sql` before using these
 operations. The schema installer applies migrations in filename order.
 
-### Mapping-assisted manual overrides
+### Controlled selections and internal parameter tables
 
-Mapping content is read directly from Parquet; it is not duplicated in
-PostgreSQL. `backend/mapping_data/latest_mappings.json` maps each mapping name
-to the latest immutable local or `s3://` Parquet path. Field names, output
-columns, and downstream calculation stages are configured in
-`backend/app/mapping_config.py`.
+Calculation parameters are read from Parquet and are not duplicated in
+PostgreSQL. `backend/mapping_data/latest_mappings.json` maps each logical name
+to its current immutable local or `s3://` path. `backend/app/mappings.py`
+resolves those tables for enrichment functions only.
 
 The initial controlled override fields are:
 
 - `exposureClass`: skips `exposure_class`, then recalculates HQLA, reporting
-  lines, and LCR impacts;
-- `hqlaLevel`: skips `hqla`, then recalculates reporting lines and LCR impacts;
-- `reportingLineLcr`: skips `reporting_lines`, then recalculates LCR impacts.
+  lines, LCR and LDP impacts;
+- `hqlaLevel`: skips `hqla`, then recalculates reporting lines, LCR and LDP impacts;
+- `reportingLineLcr`: skips `reporting_lines`, then recalculates LCR and LDP impacts.
 
-The adjustment UI loads distinct values from the configured Parquet output
-column and provides a paginated mapping-table viewer. Preview and commit
-validate the selected value again on the backend. Upstream fields are never
-changed to fit the override. The resolved path, selected value, output column,
-producer, and downstream stages are stored with the audit snapshot.
+The UI no longer browses Parquet or displays mapping tables. It loads the small
+reviewed lists from `backend/app/project_config.py` through
+`GET /api/adjustment-options`. Preview and commit validate selections again on
+the backend. Upstream fields are never rewritten to fit a manual selection;
+the selected value and downstream stages are retained in audit metadata.
 
-The repository includes three example Parquet files under
+The repository includes example parameter files under
 `backend/mapping_data/examples`. Regenerate and inspect them with:
 
 ```bash
 cd backend
-../.venv/bin/python scripts/generate_example_mappings.py
+../.venv/bin/python scripts/build_example_parameters.py
 ../.venv/bin/python scripts/read_mapping_parquet.py \
   mapping_data/examples/exposure_class_2026-08-12.parquet
 ```
@@ -222,8 +222,8 @@ before changing an endpoint or adding an adjustment type.
 | Request schemas | Validates HTTP request bodies and shared snapshot context | `backend/app/models.py` |
 | Business workflow | Preview, commit, cancellation, proxy, batch and revert rules | `backend/app/services.py` |
 | Calculation graph | Editable fields, additive measures and stage dependencies | `backend/app/config.py` |
-| Mapping rules | Maps adjustable fields to Parquet outputs and downstream stages | `backend/app/mapping_config.py` |
-| Mapping data | Resolves the latest Parquet path, searches rows and validates values | `backend/app/mappings.py` |
+| Controlled adjustment options | Defines reviewed dropdown values and downstream stages | `backend/app/project_config.py` |
+| Parameter data | Resolves manifest-selected Parquet tables for internal calculations | `backend/app/mappings.py` |
 | Calculation pipeline | Runs registered stages and records function/mapping execution metadata | `backend/lib/enrichments/pipeline.py` |
 | Rule functions | Recalculate columns directly from the input DataFrame (for example buckets) | `backend/lib/enrichments/rules.py` |
 | Parameter functions | Match input columns against an injected mapping DataFrame | `backend/lib/enrichments/parameter.py` |
@@ -465,40 +465,66 @@ Power BI can therefore aggregate all record types and obtain the corrected
 total. Users who want only unadjusted source rows can filter `record_type =
 'BASE'`. Never update or delete an output row to implement a business action.
 
-### Mapping-assisted selection
+### Project-configured controlled selections
 
-`mapping_config.py` answers *which mapping and calculation stages belong to a
-field*. `latest_mappings.json` answers *where the latest Parquet is*. The
-Parquet file answers *which values and mapping rows exist*.
+`project_config.py` defines the reviewed values users may select manually for
+controlled fields such as exposure class, HQLA and LCR reporting line. The UI
+loads this small configuration through one endpoint and renders ordinary
+dropdowns. Preview and commit validate the selected values again in the domain
+service, so a caller cannot bypass the dropdown through a direct API request.
 
 ```mermaid
 sequenceDiagram
-    participant UI as Mapping selector
-    participant API as Mapping endpoints
-    participant CFG as mapping_config.py
-    participant J as latest_mappings.json
-    participant PQ as Parquet local/S3
+    participant UI as Adjustment form
+    participant API as FastAPI
+    participant CFG as project_config.py
+    participant SVC as AdjustmentService
 
-    UI->>API: GET /api/mappings/fields
-    API->>CFG: controlled field definitions
-    API->>J: resolve mapping name
-    API-->>UI: labels, columns and resolved source
-    UI->>API: GET /api/mappings/values?field=exposureClass
-    API->>PQ: read output column
-    PQ-->>API: mapping rows
-    API-->>UI: sorted distinct values
-    UI->>API: GET /api/mappings/{name}/rows?page=1
-    API-->>UI: searchable paginated rows
+    UI->>API: GET /api/adjustment-options
+    API->>CFG: read controlled field definitions
+    API-->>UI: field labels and allowed values
+    UI->>API: POST preview with selected value
+    API->>SVC: build adjustment
+    SVC->>CFG: validate controlled selection
+    SVC-->>UI: preview with controlledSelections audit metadata
 ```
+
+Parquet mappings and `latest_mappings.json` still exist, but only as internal
+inputs to enrichment functions. They are no longer browsed from the UI.
 
 When adding a controlled field:
 
 1. Add it to `EDITABLE_FIELDS`.
-2. Add one entry to `MAPPING_FIELDS` with its mapping name, output column,
-   producer stage and downstream stages.
-3. Add the mapping name and immutable Parquet path to the JSON manifest.
-4. Add provider and service tests.
-5. Confirm the exact resolved path appears in committed audit metadata.
+2. Add one entry to `CONTROLLED_FIELD_OPTIONS` with allowed values, its producer
+   stage and downstream stages.
+3. Add service and API tests for valid and invalid values.
+4. Confirm `controlledSelections` appears in preview and committed history.
+
+### Cash/Titre amount adjustments
+
+Migration `006_add_leg_amounts_and_ldp_impacts.sql` adds the real LiMon leg
+context (`security_leg_flag`), `cash_amount_eur`, `security_amount_eur`, and the
+six additive `ldp_impact_*` outputs to the Vertica simulator. The API uses
+stable camelCase names while the semantic dictionary owns their physical names.
+
+The leg is immutable business context, not an adjustable field. Before loading
+trades, the user selects `0` for Cash or `1` for Titre; the backend uses it as a
+search/batch filter. The workspace then displays the selected row's leg and
+exposes only its applicable EUR amount. Preview validates the amount against
+the persisted leg, recalculates `eur_amount_0d`, maturity buckets, LCR factors
+and every LDP impact, and shows those results before commit. BASE, reversal and
+replacement always retain the same leg.
+
+The current deterministic simulator rule is implemented in
+`backend/lib/enrichments/rules.py`. It is an explicit replacement point for the
+production LiMon formulas once those functions are supplied; React never
+calculates impacts.
+
+Rollback guidance: this migration is additive. Before any Cash/Titre adjustment
+is committed, the new constraint and columns can be dropped during a controlled
+downtime. After such rows exist, retain the columns and deploy a forward
+migration instead, otherwise append-only history and Power BI totals would be
+lost.
 
 ### Direct cancellation
 

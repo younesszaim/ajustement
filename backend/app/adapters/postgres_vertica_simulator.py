@@ -70,6 +70,9 @@ class PostgresVerticaSimulatorRepository:
             "maturityDate": self._iso(row.get("maturity_date")),
             "currency": row.get("currency"),
             "amount": self._number(row.get("amount")),
+            "securityLegFlag": row.get("security_leg_flag"),
+            "cashAmountEur": self._number(row.get("cash_amount_eur")),
+            "securityAmountEur": self._number(row.get("security_amount_eur")),
             "portfolio": row.get("portfolio"),
             "counterparty": row.get("counterparty"),
             "exposureClass": row.get("exposure_class"),
@@ -81,6 +84,12 @@ class PostgresVerticaSimulatorRepository:
             "eurAmount3m": self._number(row.get("eur_amount_3m")),
             "lcrInflow": self._number(row.get("lcr_inflow")),
             "lcrOutflow": self._number(row.get("lcr_outflow")),
+            "ldpImpactAsset": self._number(row.get("ldp_impact_asset")),
+            "ldpImpactAssetCashGestion": self._number(row.get("ldp_impact_asset_cash_gestion")),
+            "ldpImpactInflow": self._number(row.get("ldp_impact_inflow")),
+            "ldpImpactOutflow": self._number(row.get("ldp_impact_outflow")),
+            "ldpImpactLcrReglementaire": self._number(row.get("ldp_impact_lcr_reglementaire")),
+            "ldpImpactLcrGestion": self._number(row.get("ldp_impact_lcr_gestion")),
             "reserve": self._number(row.get("reserve_amount")),
             "recordType": row["record_type"],
             "asofdate": self._iso(row["asofdate"]),
@@ -158,7 +167,7 @@ class PostgresVerticaSimulatorRepository:
         )
         return None if latest["record_type"] == "ADJUSTMENT_CANCEL" else latest
 
-    def search(self, context, search, fo_system, page, page_size):
+    def search(self, context, search, fo_system, security_leg_flag, page, page_size):
         with self.connection() as connection:
             grouped = self._group_rows(self._context_rows(connection, context))
         needle = search.casefold()
@@ -167,6 +176,8 @@ class PostgresVerticaSimulatorRepository:
             active = self._active(rows)
             display = active or max(rows, key=lambda row: row["created_at"])
             if fo_system and display["fo_system"] != fo_system:
+                continue
+            if security_leg_flag is not None and display.get("security_leg_flag") != security_leg_flag:
                 continue
             searchable = (display["trade_no"], display.get("isin"), source_id)
             if needle and not any(needle in str(value or "").casefold() for value in searchable):
@@ -232,6 +243,8 @@ class PostgresVerticaSimulatorRepository:
             if filters.get("amountMin") not in (None, "") and amount < float(filters["amountMin"]):
                 continue
             if filters.get("amountMax") not in (None, "") and amount > float(filters["amountMax"]):
+                continue
+            if filters.get("securityLegFlag") not in (None, "") and item.get("securityLegFlag") != int(filters["securityLegFlag"]):
                 continue
             replacement_count = sum(
                 row["record_type"] == "ADJUSTMENT_REPLACEMENT" for row in rows
@@ -357,16 +370,22 @@ class PostgresVerticaSimulatorRepository:
                     connection.execute(
                         f"""INSERT INTO {self.schema}.output_completude_table(
                             output_record_id,asofdate,asofdateflow,trade_no,fo_system,isin,portfolio,counterparty,
-                            target_instrument_type,issue,maturity_date,value_date,currency,amount,eur_amount_0d,
+                            target_instrument_type,issue,maturity_date,value_date,currency,amount,security_leg_flag,
+                            cash_amount_eur,security_amount_eur,eur_amount_0d,
                             eur_amount_7d,eur_amount_30d,eur_amount_3m,lcr_inflow,lcr_outflow,reserve_amount,
+                            ldp_impact_asset,ldp_impact_asset_cash_gestion,ldp_impact_inflow,ldp_impact_outflow,
+                            ldp_impact_lcr_reglementaire,ldp_impact_lcr_gestion,
                             exposure_class,hqla_level,reporting_line_lcr,record_type,adjustment_reference,created_by)
-                            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                         (
                             output_id,context.asofdate,context.asofdateflow,row.get("tradeNo"),row.get("foSystem"),
                             row.get("isin"),row.get("portfolio"),row.get("counterparty"),row.get("targetInstrumentType"),
                             row.get("issue"),row.get("maturityDate"),row.get("valueDate"),row.get("currency"),
-                            row.get("amount"),row.get("eurAmount0d"),row.get("eurAmount7d"),row.get("eurAmount30d"),
+                            row.get("amount"),row.get("securityLegFlag"),row.get("cashAmountEur"),
+                            row.get("securityAmountEur"),row.get("eurAmount0d"),row.get("eurAmount7d"),row.get("eurAmount30d"),
                             row.get("eurAmount3m"),row.get("lcrInflow"),row.get("lcrOutflow"),row.get("reserve"),
+                            row.get("ldpImpactAsset"),row.get("ldpImpactAssetCashGestion"),row.get("ldpImpactInflow"),
+                            row.get("ldpImpactOutflow"),row.get("ldpImpactLcrReglementaire"),row.get("ldpImpactLcrGestion"),
                             row.get("exposureClass"),row.get("hqlaLevel"),row.get("reportingLineLcr"),record_type,
                             batch_reference,user,
                         ),

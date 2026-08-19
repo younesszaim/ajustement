@@ -44,6 +44,42 @@ def test_amount_change_recalculates_the_populated_bucket(setup):
     assert preview["replacement"]["eurAmount30d"] == 1_250_000
 
 
+def test_titre_amount_recalculates_buckets_and_ldp_impacts(setup):
+    _, service, context = setup
+    preview = service.preview(
+        context, "ROW-0001", {"securityAmountEur": 1_250_000}
+    )
+
+    replacement = preview["replacement"]
+    assert replacement["amount"] == 1_250_000
+    assert replacement["eurAmount30d"] == 1_250_000
+    assert replacement["ldpImpactAsset"] == 1_250_000
+    assert replacement["ldpImpactAssetCashGestion"] == 0
+    assert replacement["ldpImpactOutflow"] == 250_000
+    assert replacement["ldpImpactLcrReglementaire"] == 1_000_000
+    assert preview["cancellation"]["securityAmountEur"] == -1_000_000
+    assert preview["impactedStages"][-1] == "ldp_impacts"
+
+
+def test_cash_amount_requires_cash_leg_and_recalculates_cash_impact(setup):
+    _, service, context = setup
+    preview = service.preview(
+        context, "ROW-0003", {"cashAmountEur": 400_000}
+    )
+
+    replacement = preview["replacement"]
+    assert replacement["amount"] == 400_000
+    assert replacement["eurAmount30d"] == 400_000
+    assert replacement["ldpImpactAsset"] == 0
+    assert replacement["ldpImpactAssetCashGestion"] == 400_000
+
+    with pytest.raises(DomainError, match="Cash amount EUR"):
+        service.preview(context, "ROW-0001", {"cashAmountEur": 300_000})
+
+    with pytest.raises(DomainError, match="cannot be manually adjusted"):
+        service.preview(context, "ROW-0001", {"securityLegFlag": 0})
+
+
 def test_trade_cancellation_preview_creates_only_one_reversal(setup):
     _, service, context = setup
     preview = service.preview_cancellation(context, "ROW-0001")
@@ -82,27 +118,12 @@ def test_proxy_preview_generates_trade_and_calculated_output(setup):
     assert len(preview["outputRows"]) == 1
 
 
-def test_mapping_override_preserves_selected_step_and_recalculates_only_downstream(setup):
+def test_controlled_selection_preserves_selected_step_and_recalculates_downstream(setup):
     repo, _, context = setup
 
     class MappingStub:
         def parameter_table(self, mapping_name):
             return build_mapping_provider().parameter_table(mapping_name)
-
-        def validate_overrides(self, changes):
-            return [
-                {
-                    "field": "exposureClass",
-                    "value": changes["exposureClass"],
-                    "selectionType": "MANUAL_MAPPING_OVERRIDE",
-                    "mappingName": "exposure_class_mapping",
-                    "displayName": "Exposure class",
-                    "sourcePath": "s3://mock/latest/exposure.parquet",
-                    "outputColumn": "EXPOSURE_CLASS",
-                    "producerStage": "exposure_class",
-                    "downstreamStages": ["hqla", "reporting_lines", "lcr_impacts"],
-                }
-            ]
 
     service = AdjustmentService(repo, MappingStub())
     preview = service.preview(
@@ -111,9 +132,9 @@ def test_mapping_override_preserves_selected_step_and_recalculates_only_downstre
 
     assert preview["replacement"]["exposureClass"] == "SOVEREIGN"
     assert "exposure_class" not in preview["impactedStages"]
-    assert "exposure_class" not in preview["impactedStages"]
-    assert preview["impactedStages"][-3:] == ["hqla", "reporting_lines", "lcr_impacts"]
-    assert preview["mappingOverrides"][0]["mappingName"] == "exposure_class_mapping"
+    assert preview["impactedStages"][-4:] == ["hqla", "reporting_lines", "lcr_impacts", "ldp_impacts"]
+    assert preview["controlledSelections"][0]["selectionType"] == "PROJECT_CONFIG_OPTION"
+    assert preview["controlledSelections"][0]["value"] == "SOVEREIGN"
 
 
 def test_hqla_override_is_not_overwritten_by_its_producer(setup):
@@ -123,9 +144,6 @@ def test_hqla_override_is_not_overwritten_by_its_producer(setup):
         def parameter_table(self, mapping_name):
             return build_mapping_provider().parameter_table(mapping_name)
 
-        def validate_overrides(self, changes):
-            return []
-
     preview = AdjustmentService(repo, MappingStub()).preview(
         context, "ROW-0001", {"hqlaLevel": "L2B"}
     )
@@ -133,35 +151,15 @@ def test_hqla_override_is_not_overwritten_by_its_producer(setup):
     assert preview["replacement"]["hqlaLevel"] == "L2B"
     assert "hqla" not in preview["impactedStages"]
     assert "hqla" not in preview["impactedStages"]
-    assert preview["impactedStages"][-2:] == ["reporting_lines", "lcr_impacts"]
+    assert preview["impactedStages"][-3:] == ["reporting_lines", "lcr_impacts", "ldp_impacts"]
 
 
-def test_multiple_mapping_overrides_protect_every_selected_value(setup):
+def test_multiple_controlled_selections_protect_every_selected_value(setup):
     repo, _, context = setup
 
     class MappingStub:
         def parameter_table(self, mapping_name):
             return build_mapping_provider().parameter_table(mapping_name)
-
-        def validate_overrides(self, changes):
-            definitions = {
-                "exposureClass": ("exposure_class", ["hqla", "reporting_lines", "lcr_impacts"]),
-                "hqlaLevel": ("hqla", ["reporting_lines", "lcr_impacts"]),
-            }
-            return [
-                {
-                    "field": field,
-                    "value": value,
-                    "selectionType": "MANUAL_MAPPING_OVERRIDE",
-                    "mappingName": f"{field}_mapping",
-                    "displayName": field,
-                    "sourcePath": "s3://mock/latest.parquet",
-                    "outputColumn": field.upper(),
-                    "producerStage": definitions[field][0],
-                    "downstreamStages": definitions[field][1],
-                }
-                for field, value in changes.items()
-            ]
 
     preview = AdjustmentService(repo, MappingStub()).preview(
         context,
@@ -173,7 +171,13 @@ def test_multiple_mapping_overrides_protect_every_selected_value(setup):
     assert preview["replacement"]["hqlaLevel"] == "L2B"
     assert "exposure_class" not in preview["impactedStages"]
     assert "hqla" not in preview["impactedStages"]
-    assert preview["impactedStages"][-2:] == ["reporting_lines", "lcr_impacts"]
+    assert preview["impactedStages"][-3:] == ["reporting_lines", "lcr_impacts", "ldp_impacts"]
+
+
+def test_invalid_controlled_selection_is_rejected(setup):
+    _, service, context = setup
+    with pytest.raises(DomainError, match="not allowed"):
+        service.preview(context, "ROW-0001", {"exposureClass": "UNKNOWN"})
 
 
 def test_invalid_changes(setup):
@@ -276,10 +280,14 @@ def test_adjusted_trade_lineage_marks_latest_replacement_active(setup):
 
 def test_search_expands_all_associated_rows(setup):
     repo, _, c = setup
-    rows, total = repo.search(c, "OT-982731", "Orchestrade", 1, 10)
+    rows, total = repo.search(c, "OT-982731", "Orchestrade", 1, 1, 10)
     assert total == 3
     assert [x["lineageRole"] for x in rows] == ["ORIGINAL", "REVERSAL", "ADJUSTED"]
     assert [x["isActive"] for x in rows] == [False, False, True]
+
+    cash_rows, cash_total = repo.search(c, "KD-109221", "Kondor", 0, 1, 10)
+    assert cash_total == 1
+    assert cash_rows[0]["securityLegFlag"] == 0
 
 
 def test_batch_search_returns_only_filtered_effective_rows(setup):

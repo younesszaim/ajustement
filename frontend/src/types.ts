@@ -21,6 +21,9 @@ export interface Trade {
   maturityDate: string;
   currency: string;
   amount: number;
+  securityLegFlag: 0 | 1;
+  cashAmountEur: number;
+  securityAmountEur: number;
   portfolio: string;
   counterparty: string;
   exposureClass: string;
@@ -33,6 +36,12 @@ export interface Trade {
   eurAmount3m: number;
   lcrInflow: number;
   lcrOutflow: number;
+  ldpImpactAsset: number;
+  ldpImpactAssetCashGestion: number;
+  ldpImpactInflow: number;
+  ldpImpactOutflow: number;
+  ldpImpactLcrReglementaire: number;
+  ldpImpactLcrGestion: number;
   reserve: number;
   recordType: RecordType;
   isAdjusted?: boolean;
@@ -70,7 +79,7 @@ export interface Preview {
   recalculatedFields: string[];
   differences: Difference[];
   rowVersion: string;
-  mappingOverrides?: MappingOverride[];
+  controlledSelections?: ControlledSelection[];
 }
 export interface BatchPreview {
   items: Preview[];
@@ -81,6 +90,7 @@ export interface BatchPreview {
   aggregateDeltas: { field: string; label: string; delta: number }[];
 }
 export interface BatchTradeFilters {
+  securityLegFlag?: 0 | 1;
   tradeNo?: string;
   portfolio?: string;
   counterparty?: string;
@@ -122,30 +132,23 @@ export interface HistoryItem {
   original: Trade | null;
   cancellation: Trade | null;
   replacement: Trade | null;
-  mappingOverrides?: MappingOverride[];
+  controlledSelections?: ControlledSelection[];
 }
 
-export interface MappedField {
+export interface ControlledFieldOption {
   fieldName: string;
-  mappingName: string;
   displayName: string;
-  description: string;
-  sourcePath: string;
-  outputColumn: string;
+  options: string[];
   producerStage: string;
   downstreamStages: string[];
 }
-export interface MappingOverride extends MappedField {
+export interface ControlledSelection {
   field: string;
   value: unknown;
-  selectionType: "MANUAL_MAPPING_OVERRIDE";
-}
-export interface MappingRows {
-  mapping: MappedField;
-  items: ({ rowNumber: number } & Record<string, unknown>)[];
-  page: number;
-  pageSize: number;
-  total: number;
+  selectionType: "PROJECT_CONFIG_OPTION";
+  displayName: string;
+  producerStage: string;
+  downstreamStages: string[];
 }
 
 export interface ProxyFields {

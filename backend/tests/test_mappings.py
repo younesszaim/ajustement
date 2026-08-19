@@ -12,13 +12,7 @@ def provider(tmp_path):
     mapping_dir = tmp_path / "versions"
     mapping_dir.mkdir()
     pq.write_table(
-        pa.Table.from_pylist(
-            [
-                {"INPUT": "BANK", "OUTPUT": "FINANCIAL"},
-                {"INPUT": "STATE", "OUTPUT": "SOVEREIGN"},
-                {"INPUT": "OTHER", "OUTPUT": "FINANCIAL"},
-            ]
-        ),
+        pa.Table.from_pylist([{"INPUT": "BANK", "OUTPUT": "FINANCIAL"}]),
         mapping_dir / "mapping-v1.parquet",
     )
     manifest = tmp_path / "latest.json"
@@ -26,51 +20,17 @@ def provider(tmp_path):
         json.dumps({"test_mapping": "versions/mapping-v1.parquet"}),
         encoding="utf-8",
     )
-    config = {
-        "testField": {
-            "mappingName": "test_mapping",
-            "displayName": "Test field",
-            "description": "Test mapping",
-            "outputColumn": "OUTPUT",
-            "producerStage": "test_stage",
-            "recalculationStartStage": "next_stage",
-            "downstreamStages": ["next_stage"],
-        }
-    }
-    return ParquetMappingProvider(manifest, config)
+    return ParquetMappingProvider(manifest)
 
 
-def test_manifest_resolves_relative_parquet_and_distinct_values(tmp_path):
+def test_manifest_resolves_relative_parquet_for_calculation(tmp_path):
     mappings = provider(tmp_path)
-
-    result = mappings.values("testField")
-
-    assert result["field"]["sourcePath"] == "versions/mapping-v1.parquet"
-    assert result["values"] == ["FINANCIAL", "SOVEREIGN"]
-    assert mappings.values("testField", "sov")["values"] == ["SOVEREIGN"]
+    frame, source = mappings.parameter_table("test_mapping")
+    assert source == "versions/mapping-v1.parquet"
+    assert frame.to_dict("records") == [{"INPUT": "BANK", "OUTPUT": "FINANCIAL"}]
 
 
-def test_mapping_rows_support_search_and_pagination(tmp_path):
+def test_missing_manifest_entry_is_actionable(tmp_path):
     mappings = provider(tmp_path)
-
-    first_page = mappings.rows("test_mapping", page=1, page_size=2)
-    searched = mappings.rows("test_mapping", search="state")
-
-    assert first_page["total"] == 3
-    assert len(first_page["items"]) == 2
-    assert first_page["items"][0]["rowNumber"] == 1
-    assert searched["total"] == 1
-    assert searched["items"][0]["OUTPUT"] == "SOVEREIGN"
-
-
-def test_override_validation_returns_auditable_mapping_reference(tmp_path):
-    mappings = provider(tmp_path)
-
-    [override] = mappings.validate_overrides({"testField": "FINANCIAL"})
-
-    assert override["mappingName"] == "test_mapping"
-    assert override["sourcePath"] == "versions/mapping-v1.parquet"
-    assert override["downstreamStages"] == ["next_stage"]
-
-    with pytest.raises(DomainError, match="not available"):
-        mappings.validate_overrides({"testField": "UNKNOWN"})
+    with pytest.raises(DomainError, match="has no Parquet path"):
+        mappings.parameter_table("unknown_mapping")

@@ -5,7 +5,7 @@ from lib.enrichments.contracts import CalculationContext, EnrichmentError
 from lib.enrichments.parameter import apply_best_match_mapping
 from lib.enrichments.pipeline import DataFrameCalculationAdapter
 from lib.enrichments.registry import REGISTRY
-from lib.enrichments.rules import calculate_buckets
+from lib.enrichments.rules import calculate_buckets, calculate_ldp_impacts, select_leg_amount
 
 
 def test_bucket_rule_handles_multiple_rows_without_changing_cardinality():
@@ -23,6 +23,25 @@ def test_bucket_rule_handles_multiple_rows_without_changing_cardinality():
     assert result.loc[0, "maturityBucket"] == "0-30D"
     assert result.loc[1, "eurAmount3m"] == 200
     assert result.loc[1, "maturityBucket"] == "31D+"
+
+
+def test_leg_amount_and_ldp_rules_handle_cash_and_titre():
+    frame = pd.DataFrame(
+        [
+            {"securityLegFlag": 0, "cashAmountEur": 100, "securityAmountEur": 900,
+             "lcrInflow": 10, "lcrOutflow": 20},
+            {"securityLegFlag": 1, "cashAmountEur": 200, "securityAmountEur": 800,
+             "lcrInflow": 30, "lcrOutflow": 40},
+        ]
+    )
+    selected = select_leg_amount(frame, CalculationContext(stage="leg_amount"))
+    result = calculate_ldp_impacts(selected, CalculationContext(stage="ldp_impacts"))
+
+    assert selected["eurAmount0d"].tolist() == [100, 800]
+    assert result["ldpImpactAsset"].tolist() == [0, 800]
+    assert result["ldpImpactAssetCashGestion"].tolist() == [100, 0]
+    assert result["ldpImpactLcrReglementaire"].tolist() == [-10, 790]
+    assert result["ldpImpactLcrGestion"].tolist() == [90, 790]
 
 
 def test_parameter_enrichment_prefers_exact_row_over_wildcard():

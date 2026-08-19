@@ -27,7 +27,7 @@ class AdjustmentRequest(BaseModel):
             "example": {
                 "context": EXAMPLE_CONTEXT,
                 "rowId": "SIM-ROW-0001",
-                "changes": {"amount": 1250000, "exposureClass": "SOVEREIGN"},
+                "changes": {"securityAmountEur": 1250000},
             }
         }
     )
@@ -49,7 +49,7 @@ class CommitRequest(AdjustmentRequest):
             "example": {
                 "context": EXAMPLE_CONTEXT,
                 "rowId": "SIM-ROW-0001",
-                "changes": {"amount": 1250000, "exposureClass": "SOVEREIGN"},
+                "changes": {"securityAmountEur": 1250000},
                 "reason": "Correct classification after source review",
                 "expectedVersion": "copy-rowVersion-from-preview",
                 "idempotencyKey": "a9baa15f-2062-448d-845b-402842ace870",
@@ -85,7 +85,7 @@ class BatchPreviewRequest(BaseModel):
             "example": {
                 "context": EXAMPLE_CONTEXT,
                 "items": [
-                    {"rowId": "SIM-ROW-0001", "changes": {"amount": 1250000}},
+                    {"rowId": "SIM-ROW-0001", "changes": {"securityAmountEur": 1250000}},
                     {"rowId": "SIM-ROW-0002", "changes": {"maturityDate": "2026-09-30"}},
                 ],
             }
@@ -133,7 +133,7 @@ class BatchCommitRequest(BaseModel):
                 "items": [
                     {
                         "rowId": "SIM-ROW-0001",
-                        "changes": {"amount": 1250000},
+                        "changes": {"securityAmountEur": 1250000},
                         "expectedVersion": "copy-first-rowVersion",
                     },
                     {

@@ -8,6 +8,7 @@ FLOW2 = "2026-08-07T11:14:09"
 
 
 def trade(i, no, fo, amount, isin, instrument="SECURITY"):
+    leg_flag = 1 if instrument == "SECURITY" else 0
     return {
         "rowId": f"ROW-{i:04}",
         "tradeKey": f"{fo}|{no}|{isin}",
@@ -20,6 +21,9 @@ def trade(i, no, fo, amount, isin, instrument="SECURITY"):
         "maturityDate": "2026-08-20",
         "currency": "EUR",
         "amount": float(amount),
+        "securityLegFlag": leg_flag,
+        "cashAmountEur": float(amount) if leg_flag == 0 else 0.0,
+        "securityAmountEur": float(amount) if leg_flag == 1 else 0.0,
         "portfolio": "LIQUIDITY",
         "counterparty": "CP_BANK_01",
         "exposureClass": "FINANCIAL",
@@ -32,6 +36,12 @@ def trade(i, no, fo, amount, isin, instrument="SECURITY"):
         "eurAmount3m": 0.0,
         "lcrInflow": 0.0,
         "lcrOutflow": float(amount) * 0.2,
+        "ldpImpactAsset": float(amount) if leg_flag == 1 else 0.0,
+        "ldpImpactAssetCashGestion": float(amount) if leg_flag == 0 else 0.0,
+        "ldpImpactInflow": 0.0,
+        "ldpImpactOutflow": float(amount) * 0.2,
+        "ldpImpactLcrReglementaire": float(amount) * 0.8,
+        "ldpImpactLcrGestion": float(amount) * 0.8,
         "reserve": 0.0,
         "recordType": "BASE",
         "asofdate": "2026-08-06",
@@ -179,13 +189,15 @@ class MockRepository:
             rows = [row for row in rows if row.get("amount", 0) >= float(filters["amountMin"])]
         if filters.get("amountMax") not in (None, ""):
             rows = [row for row in rows if row.get("amount", 0) <= float(filters["amountMax"])]
+        if filters.get("securityLegFlag") not in (None, ""):
+            rows = [row for row in rows if row.get("securityLegFlag") == int(filters["securityLegFlag"])]
         start = (page - 1) * page_size
         return rows[start:start + page_size], len(rows)
 
     def _key(self, c):
         return (c.asofdate.isoformat(), c.asofdateflow.isoformat())
 
-    def search(self, c, search, fo, page, page_size):
+    def search(self, c, search, fo, security_leg_flag, page, page_size):
         effective = self.data.get(self._key(c), [])
         needle = search.lower()
         matches = [
@@ -199,6 +211,7 @@ class MockRepository:
                 )
             )
             and (not fo or r["foSystem"] == fo)
+            and (security_leg_flag is None or r.get("securityLegFlag") == security_leg_flag)
         ]
         expanded = []
         for match in matches:

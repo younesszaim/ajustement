@@ -21,6 +21,13 @@ export const fields = {
     "semanticId": "asofdate",
     "type": "date"
   },
+  "cashAmountEur": {
+    "additive": true,
+    "editable": true,
+    "label": "Cash amount EUR",
+    "semanticId": "cash_amount_eur",
+    "type": "decimal"
+  },
   "counterparty": {
     "additive": false,
     "editable": true,
@@ -161,6 +168,48 @@ export const fields = {
     "semanticId": "lcr_outflow_factor",
     "type": "decimal"
   },
+  "ldpImpactAsset": {
+    "additive": true,
+    "editable": false,
+    "label": "LDP impact asset",
+    "semanticId": "ldp_impact_asset",
+    "type": "decimal"
+  },
+  "ldpImpactAssetCashGestion": {
+    "additive": true,
+    "editable": false,
+    "label": "LDP impact asset cash gestion",
+    "semanticId": "ldp_impact_asset_cash_gestion",
+    "type": "decimal"
+  },
+  "ldpImpactInflow": {
+    "additive": true,
+    "editable": false,
+    "label": "LDP impact inflow",
+    "semanticId": "ldp_impact_inflow",
+    "type": "decimal"
+  },
+  "ldpImpactLcrGestion": {
+    "additive": true,
+    "editable": false,
+    "label": "LDP impact LCR gestion",
+    "semanticId": "ldp_impact_lcr_gestion",
+    "type": "decimal"
+  },
+  "ldpImpactLcrReglementaire": {
+    "additive": true,
+    "editable": false,
+    "label": "LDP impact LCR r\u00e9glementaire",
+    "semanticId": "ldp_impact_lcr_reglementaire",
+    "type": "decimal"
+  },
+  "ldpImpactOutflow": {
+    "additive": true,
+    "editable": false,
+    "label": "LDP impact outflow",
+    "semanticId": "ldp_impact_outflow",
+    "type": "decimal"
+  },
   "maturityBucket": {
     "additive": false,
     "editable": false,
@@ -210,12 +259,26 @@ export const fields = {
     "semanticId": "row_id",
     "type": "string"
   },
+  "securityAmountEur": {
+    "additive": true,
+    "editable": true,
+    "label": "Security amount EUR",
+    "semanticId": "security_amount_eur",
+    "type": "decimal"
+  },
   "securityId": {
     "additive": false,
     "editable": true,
     "label": "Security ID",
     "semanticId": "security_id",
     "type": "string"
+  },
+  "securityLegFlag": {
+    "additive": false,
+    "editable": false,
+    "label": "Leg",
+    "semanticId": "security_leg_flag",
+    "type": "integer"
   },
   "targetInstrumentType": {
     "additive": false,

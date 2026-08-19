@@ -265,7 +265,7 @@ class PostgresSimulationAuditRepository:
                             Jsonb(cancellation) if cancellation else None,
                             Jsonb(replacement) if replacement else None,
                             Jsonb(built["changedFields"]),Jsonb(built["recalculatedFields"]),
-                            Jsonb(built.get("impactedStages", [])),Jsonb(built.get("mappingOverrides", [])),
+                            Jsonb(built.get("impactedStages", [])),Jsonb(built.get("controlledSelections", [])),
                         ),
                     ).fetchone()
                     for change in built["changedFields"]:
@@ -348,7 +348,7 @@ class PostgresSimulationAuditRepository:
             "original": row["original_snapshot"],
             "cancellation": row["cancellation_snapshot"],
             "replacement": row["replacement_snapshot"],
-            "mappingOverrides": row.get("mapping_overrides") or [],
+            "controlledSelections": row.get("mapping_overrides") or [],
         }
 
     def get_history(self, project_key, row_id):
@@ -426,7 +426,7 @@ class PostgresSimulationAuditRepository:
                         "original": original,
                         "cancellation": item["cancellation"],
                         "replacement": item["replacement"],
-                        "mappingOverrides": item.get("mappingOverrides", []),
+                        "controlledSelections": item.get("controlledSelections", []),
                     }
                 )
         return result

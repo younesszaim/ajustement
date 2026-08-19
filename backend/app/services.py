@@ -20,10 +20,10 @@ from .config import (
     ADDITIVE_MEASURES,
     EDITABLE_FIELDS,
     FIELD_DEPENDENCIES,
-    MAPPING_FIELDS,
     STAGE_DEPENDENCIES,
 )
 from .data_dictionary import FIELDS
+from .project_config import controlled_selections
 
 
 class DomainError(Exception):
@@ -109,27 +109,39 @@ class AdjustmentService:
         actual = {k: v for k, v in changes.items() if current.get(k) != v}
         if not actual:
             raise DomainError("No values were changed.")
-        if "amount" in actual:
-            try:
-                actual["amount"] = float(Decimal(str(actual["amount"])))
-            except Exception as exc:
-                raise DomainError("Amount must be numeric.") from exc
-        mapping_overrides = (
-            self.mappings.validate_overrides(actual) if self.mappings else []
-        )
+        for field in ("amount", "cashAmountEur", "securityAmountEur"):
+            if field in actual:
+                try:
+                    actual[field] = float(Decimal(str(actual[field])))
+                except Exception as exc:
+                    raise DomainError(f"{self._label(field)} must be numeric.") from exc
+        try:
+            leg_flag = int(current.get("securityLegFlag"))
+        except (TypeError, ValueError) as exc:
+            raise DomainError("Leg must be 0 (Cash) or 1 (Titre).") from exc
+        if leg_flag not in (0, 1):
+            raise DomainError("Leg must be 0 (Cash) or 1 (Titre).")
+        if "cashAmountEur" in actual and leg_flag != 0:
+            raise DomainError("Cash amount EUR can only be adjusted for leg 0 (Cash).")
+        if "securityAmountEur" in actual and leg_flag != 1:
+            raise DomainError("Security amount EUR can only be adjusted for leg 1 (Titre).")
+        if "cashAmountEur" in actual and "securityAmountEur" in actual:
+            raise DomainError("Adjust either the Cash leg or the Titre leg, not both.")
+        selected_field = "cashAmountEur" if leg_flag == 0 else "securityAmountEur"
+        if selected_field in actual:
+            actual["amount"] = actual[selected_field]
+        elif "amount" in actual:
+            actual[selected_field] = actual["amount"]
+        try:
+            selections = controlled_selections(actual)
+        except ValueError as exc:
+            raise DomainError(str(exc)) from exc
         replacement = deepcopy(current)
         replacement.update(actual)
         stages = self.resolver.resolve(set(actual))
-        protected_producers = {
-            override["producerStage"] for override in mapping_overrides
-        }
+        protected_producers = {selection["producerStage"] for selection in selections}
         # A user-selected controlled output is authoritative for its own step,
         # even when prerequisite expansion discovers that producer again.
-        protected_producers.update(
-            MAPPING_FIELDS[field]["producerStage"]
-            for field in actual
-            if field in MAPPING_FIELDS
-        )
         stages = [stage for stage in stages if stage not in protected_producers]
         try:
             replacement, recalculated, executions = self.calc.recalculate(replacement, stages)
@@ -178,7 +190,7 @@ class AdjustmentService:
             "differences": diffs,
             "rowVersion": row_version(current),
             "context": context,
-            "mappingOverrides": mapping_overrides,
+            "controlledSelections": selections,
             "calculationExecutions": executions,
         }
 
@@ -260,12 +272,21 @@ class AdjustmentService:
             **values,
             "asofdate": context.asofdate.isoformat(),
             "recordType": "PROXY",
+            "securityLegFlag": 1,
+            "cashAmountEur": 0.0,
+            "securityAmountEur": values["amount"],
             "eurAmount0d": 0.0,
             "eurAmount7d": 0.0,
             "eurAmount30d": 0.0,
             "eurAmount3m": 0.0,
             "lcrInflow": 0.0,
             "lcrOutflow": 0.0,
+            "ldpImpactAsset": 0.0,
+            "ldpImpactAssetCashGestion": 0.0,
+            "ldpImpactInflow": 0.0,
+            "ldpImpactOutflow": 0.0,
+            "ldpImpactLcrReglementaire": 0.0,
+            "ldpImpactLcrGestion": 0.0,
             "reserve": 0.0,
             "exposureClass": "",
             "hqlaLevel": "",

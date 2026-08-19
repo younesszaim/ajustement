@@ -7,8 +7,7 @@ import type {
   ProxyFields,
   Trade,
   TradeLineage,
-  MappedField,
-  MappingRows,
+  ControlledFieldOption,
 } from "./types";
 
 /**
@@ -54,9 +53,9 @@ export const api = {
       page,
       pageSize,
     }),
-  trades: (c: Context, q: string, fo: string, page: number) =>
+  trades: (c: Context, q: string, fo: string, leg: 0 | 1, page: number) =>
     json<{ items: Trade[]; total: number }>(
-      `/api/trades?asofdate=${c.asofdate}&asofdateflow=${encodeURIComponent(c.asofdateflow)}&search=${encodeURIComponent(q)}&foSystem=${encodeURIComponent(fo)}&page=${page}&pageSize=10`,
+      `/api/trades?asofdate=${c.asofdate}&asofdateflow=${encodeURIComponent(c.asofdateflow)}&search=${encodeURIComponent(q)}&foSystem=${encodeURIComponent(fo)}&securityLegFlag=${leg}&page=${page}&pageSize=10`,
     ),
   trade: (c: Context, id: string) =>
     json<Trade>(
@@ -71,16 +70,8 @@ export const api = {
     json<HistoryItem[]>(
       `/api/adjustments/history?asofdate=${encodeURIComponent(asofdate)}&asofdateflow=${encodeURIComponent(asofdateflow)}`,
     ),
-  mappedFields: () => json<MappedField[]>("/api/mappings/fields"),
-  // Mapping endpoints read manifest-selected Parquet; the browser never reads S3.
-  mappingValues: (field: string, search = "") =>
-    json<{ field: MappedField; values: string[] }>(
-      `/api/mappings/values?field=${encodeURIComponent(field)}&search=${encodeURIComponent(search)}`,
-    ),
-  mappingRows: (mappingName: string, search = "", page = 1) =>
-    json<MappingRows>(
-      `/api/mappings/${encodeURIComponent(mappingName)}/rows?search=${encodeURIComponent(search)}&page=${page}&pageSize=20`,
-    ),
+  adjustmentOptions: () =>
+    json<ControlledFieldOption[]>("/api/adjustment-options"),
   reconcileAdjustment: (batchReference: string) =>
     post<{
       adjustmentBatchId: string;

@@ -196,51 +196,29 @@ curl -sS -G "$LIMON_API/api/adjustments/history" \
   --data-urlencode 'asofdateflow=2026-08-07T11:14:09'
 ```
 
-## Mapping routes
+## Controlled adjustment options
 
-### `GET /api/mappings/fields` — read-only
+### `GET /api/adjustment-options` — read-only
 
-Lists fields controlled by `mapping_config.py` and their manifest-selected
-Parquet source.
-
-```bash
-curl -sS "$LIMON_API/api/mappings/fields"
-```
-
-### `GET /api/mappings/values` — read-only
+Returns the project-configured dropdown values accepted by preview and commit.
 
 ```bash
-curl -sS -G "$LIMON_API/api/mappings/values" \
-  --data-urlencode 'field=exposureClass' \
-  --data-urlencode 'search=sov' \
-  --data-urlencode 'limit=50'
+curl -sS "$LIMON_API/api/adjustment-options"
 ```
 
 Example response:
 
 ```json
-{
-  "field": {
+[
+  {
     "fieldName": "exposureClass",
-    "mappingName": "exposure_class_mapping",
-    "outputColumn": "EXPOSURE_CLASS"
-  },
-  "values": ["SOVEREIGN"]
-}
+    "displayName": "Exposure class",
+    "options": ["CORPORATE", "FINANCIAL", "SOVEREIGN"],
+    "producerStage": "exposure_class",
+    "downstreamStages": ["hqla", "reporting_lines", "lcr_impacts"]
+  }
+]
 ```
-
-### `GET /api/mappings/{mapping_name}/rows` — read-only
-
-```bash
-curl -sS -G \
-  "$LIMON_API/api/mappings/exposure_class_mapping/rows" \
-  --data-urlencode 'search=BANK' \
-  --data-urlencode 'page=1' \
-  --data-urlencode 'pageSize=20'
-```
-
-Expected `422`: mapping name is unknown, manifest path is missing, Parquet is
-unreadable, or the configured output column does not exist.
 
 ## Standard adjustment routes
 
@@ -285,10 +263,31 @@ Use the same body as impact. The response contains:
 - `cancellation`: negative reversal that would be inserted;
 - `replacement`: recalculated active row that would be inserted;
 - `differences`: before/after calculated values;
-- `mappingOverrides`: exact Parquet references used;
+- `controlledSelections`: selected configured values and downstream stages;
 - `rowVersion`: required by commit.
 
 No output or metadata row is written.
+
+Titre amount example:
+
+```json
+{
+  "context": {
+    "asofdate": "2026-08-06",
+    "asofdateflow": "2026-08-07T11:14:09"
+  },
+  "rowId": "SIM-ROW-0001",
+  "changes": {
+    "securityAmountEur": 1250000
+  }
+}
+```
+
+The leg is selected earlier through the trade-search `securityLegFlag=0|1`
+query parameter (or the batch filter) and is not sent in `changes`. For a Cash
+row, send `cashAmountEur`; for a Titre row, send `securityAmountEur`. A mismatch
+or an attempt to modify `securityLegFlag` returns HTTP `422`. The preview
+differences include buckets and `ldpImpact*` results.
 
 ### `POST /api/adjustments/commit` — commit
 

@@ -1,4 +1,3 @@
-from .mapping_config import MAPPING_FIELDS
 from .data_dictionary import FIELDS
 
 
@@ -13,8 +12,9 @@ STAGE_DEPENDENCIES = {
     "instrument_classification": set(),
     "issuer_enrichment": set(),
     "counterparty_enrichment": set(),
+    "leg_amount": {"eur_amount"},
     "eur_amount": set(),
-    "buckets": {"eur_amount"},
+    "buckets": {"leg_amount"},
     "exposure_class": {
         "instrument_classification",
         "issuer_enrichment",
@@ -24,7 +24,8 @@ STAGE_DEPENDENCIES = {
     # Reporting-line mapping also consumes the maturity bucket produced by the
     # rule stage, so its dependency is explicit and testable.
     "reporting_lines": {"exposure_class", "hqla", "buckets"},
-    "lcr_impacts": {"reporting_lines", "buckets", "eur_amount"},
+    "lcr_impacts": {"reporting_lines", "buckets", "leg_amount"},
+    "ldp_impacts": {"lcr_impacts", "buckets", "leg_amount"},
 }
 
 # Safe server-side filters exposed by the batch-selection API. The key is the
@@ -43,4 +44,5 @@ BATCH_FILTER_FIELDS = {
     "maturityDateTo": {"type": "date"},
     "amountMin": {"type": "number"},
     "amountMax": {"type": "number"},
+    "securityLegFlag": {"type": "number"},
 }

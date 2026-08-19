@@ -6,6 +6,12 @@
 }
 .search-actions {
   justify-content: flex-end;
+  align-self: end;
+  min-height: 38px;
+}
+.search-actions button {
+  height: 38px;
+  white-space: nowrap;
 }
 .search-actions .outline {
   height: 38px;
