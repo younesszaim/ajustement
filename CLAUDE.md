@@ -6,6 +6,9 @@ override its architecture rules here.
 
 Then read the scoped `AGENTS.md` nearest to every file you plan to change and:
 
+0. Determine whether the request targets the active `streamlit_app/` prototype
+   or the retained React/FastAPI implementation. Never update both implicitly.
+
 1. Use `docs/change-workflow.md` to classify the request and build an impact
    map before editing.
 2. Use `docs/ai-prompts.md` for copy-ready feature, fix, and review prompts.

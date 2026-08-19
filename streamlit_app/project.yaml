@@ -1,0 +1,70 @@
+project:
+  name: LiMon LDP BMF
+  output_schema: public
+  output_table: output_completude_table
+
+record_types:
+  base: BASE
+  reversal: REVERSAL
+  adjusted: ADJUSTED
+
+# This is the only place where physical Vertica column names are declared.
+# Adapt these values to the real LiMon extract without changing Python code.
+fields:
+  output_id: {column: bi_id, label: Output ID}
+  asofdate: {column: AsOfDate, label: As-of date}
+  version: {column: AsOfDateFlow, label: Version}
+  fo_system: {column: FOSystem, label: FO system}
+  trade_no: {column: TradeNo, label: Trade}
+  isin: {column: isin_code, label: ISIN}
+  leg_flag: {column: security_leg_flag, label: Leg}
+  cash_amount_eur: {column: Cash_Amount_EUR, label: Cash amount EUR, additive: true}
+  security_amount_eur: {column: SecurityAmount_EUR, label: Security amount EUR, additive: true}
+  maturity_date: {column: MaturityDate, label: Maturity date}
+  eur_amount_7d: {column: eur_amount_7d, label: EUR amount 7D, additive: true}
+  eur_amount_30d: {column: eur_amount_30d, label: EUR amount 30D, additive: true}
+  eur_amount_3m: {column: eur_amount_3m, label: EUR amount 3M, additive: true}
+  ldp_impact_asset: {column: ldp_impact_asset, label: LDP asset, additive: true}
+  ldp_impact_asset_cash: {column: ldp_impact_asset_cash_gestion, label: LDP cash, additive: true}
+  ldp_impact_lcr: {column: ldp_impact_lcr_reglementaire, label: LDP LCR, additive: true}
+  exposure_class: {column: exposure_class, label: Exposure class}
+  reporting_line_lcr: {column: reporting_line_lcr, label: Reporting line LCR}
+
+technical_fields:
+  record_type: record_type
+  adjustment_reference: adjustment_reference
+  source_output_id: source_output_record_id
+  parent_output_id: parent_output_record_id
+
+display_fields:
+  - output_id
+  - trade_no
+  - isin
+  - fo_system
+  - leg_flag
+  - cash_amount_eur
+  - security_amount_eur
+  - eur_amount_7d
+  - eur_amount_30d
+  - eur_amount_3m
+  - ldp_impact_lcr
+  - exposure_class
+  - reporting_line_lcr
+
+editable_fields:
+  - field: exposure_class
+    widget: select
+    options: [CENTRAL_BANK, CORPORATE, FINANCIAL, RETAIL, SOVEREIGN]
+  - field: reporting_line_lcr
+    widget: select
+    options: [RL_DEP_01, RL_LOAN_01, RL_SEC_01, RL_SEC_03]
+
+calculation:
+  # Replace this callable with the real LiMon calculation entry point.
+  callable: streamlit_app.calculations:recalculate_demo
+
+# Reversal negates every configured additive field plus columns matching these
+# explicit project patterns. Review these patterns against the real extract.
+additive_column_patterns:
+  - '(?i).*bucket.*'
+  - '(?i)ldp_impact_.*'
