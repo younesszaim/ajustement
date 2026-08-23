@@ -40,7 +40,7 @@ def build_services():
 
 def reset_draft() -> None:
     """Forget state that becomes invalid when context or selection changes."""
-    for key in ("selected_row", "preview", "draft_key"):
+    for key in ("selected_row", "preview", "preview_draft", "draft_key"):
         st.session_state.pop(key, None)
 
 
@@ -349,44 +349,79 @@ with workspace:
         amount_key = "cash_amount_eur" if context.leg_flag == 0 else "security_amount_eur"
         amount_column = settings.column(amount_key)
         amount_label = settings.fields[amount_key]["label"]
-        new_amount = st.number_input(amount_label, value=float(selected_row.get(amount_column) or 0), step=1000.0)
-        field_changes = {}
-        # Controlled dropdowns are generated from YAML. Adding another configured
-        # field does not require another hand-written Streamlit widget block.
-        for definition in settings.editable_fields:
-            field_key = definition["field"]
-            column = settings.column(field_key)
-            current = selected_row.get(column)
-            options = list(dict.fromkeys([current, *definition.get("options", [])]))
-            selected_value = st.selectbox(
-                settings.fields[field_key]["label"],
-                options,
-                index=0,
-                key=f"edit-{selected_row[settings.column('output_id')]}-{field_key}",
-            )
-            if selected_value != current:
-                # Send only actual differences. The complete adjusted row will be
-                # rebuilt and validated by FastAPI, never trusted from the UI.
-                field_changes[field_key] = selected_value
-        reason = st.text_area("Reason", placeholder="Explain why this adjustment is required")
         if "draft_key" not in st.session_state:
             # Keep one UUID for the lifetime of this draft. Preview does not use
             # it durably, while every commit retry must reuse it to avoid duplicate
             # reversal/adjusted output rows.
             st.session_state.draft_key = str(uuid4())
-        draft = AdjustmentDraft(
-            source_output_id=str(selected_row[settings.column("output_id")]),
-            new_amount=new_amount,
-            reason=reason.strip(),
-            idempotency_key=st.session_state.draft_key,
-            changes=field_changes,
-        )
-        has_changes = new_amount != float(selected_row.get(amount_column) or 0) or bool(field_changes)
-        # A reason and at least one real change are required before preview.
-        if st.button("Preview adjustment", type="primary", disabled=not reason.strip() or not has_changes):
-            preview_result = run_preview_with_progress(api, context, draft)
-            if preview_result is not None:
-                st.session_state.preview = preview_result
+
+        selected_output_id = str(selected_row[settings.column("output_id")])
+        # A form batches widget changes in the browser. Typing a reason or
+        # choosing several values therefore does not rerun the complete app;
+        # Python receives the complete draft only when Preview is submitted.
+        with st.form(
+            key=f"adjustment-form-{selected_output_id}",
+            clear_on_submit=False,
+            enter_to_submit=False,
+        ):
+            new_amount = st.number_input(
+                amount_label,
+                value=float(selected_row.get(amount_column) or 0),
+                step=1000.0,
+            )
+            field_changes = {}
+            # Controlled dropdowns are generated from YAML. Adding another
+            # configured field does not require another widget block.
+            for definition in settings.editable_fields:
+                field_key = definition["field"]
+                column = settings.column(field_key)
+                current = selected_row.get(column)
+                options = list(dict.fromkeys([current, *definition.get("options", [])]))
+                selected_value = st.selectbox(
+                    settings.fields[field_key]["label"],
+                    options,
+                    index=0,
+                    key=f"edit-{selected_output_id}-{field_key}",
+                )
+                if selected_value != current:
+                    # Send only actual differences. FastAPI rebuilds and
+                    # validates the complete adjusted row authoritatively.
+                    field_changes[field_key] = selected_value
+            reason = st.text_area(
+                "Reason",
+                placeholder="Explain why this adjustment is required",
+                key=f"reason-{selected_output_id}",
+            )
+            preview_clicked = st.form_submit_button("Preview adjustment", type="primary")
+
+        if preview_clicked:
+            # A newly submitted draft invalidates the former preview before any
+            # validation or API call. Commit can never use a stale result.
+            st.session_state.pop("preview", None)
+            st.session_state.pop("preview_draft", None)
+            has_changes = (
+                new_amount != float(selected_row.get(amount_column) or 0)
+                or bool(field_changes)
+            )
+            if not reason.strip():
+                st.error("A reason is required before preview.")
+            elif not has_changes:
+                st.error("Change at least one value before preview.")
+            else:
+                draft = AdjustmentDraft(
+                    source_output_id=selected_output_id,
+                    new_amount=new_amount,
+                    reason=reason.strip(),
+                    idempotency_key=st.session_state.draft_key,
+                    changes=field_changes,
+                )
+                preview_result = run_preview_with_progress(api, context, draft)
+                if preview_result is not None:
+                    st.session_state.preview = preview_result
+                    # Commit must use exactly the intention that produced this
+                    # authoritative preview, even if the visible form is edited
+                    # again without being submitted.
+                    st.session_state.preview_draft = draft
 
         preview = st.session_state.get("preview")
         if preview:
@@ -409,7 +444,7 @@ with workspace:
                     # Commit sends the same context, changes and idempotency key
                     # used for preview. The API still re-reads the active row and
                     # rebuilds the calculation to protect against stale data.
-                    result = api.commit(context, draft)
+                    result = api.commit(context, st.session_state.preview_draft)
                     st.success(f"Adjustment {result['operation_id']} is {result['status']}.")
                     st.session_state.pop("search_results", None)
                     reset_draft()

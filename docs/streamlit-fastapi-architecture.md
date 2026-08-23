@@ -115,6 +115,11 @@ Important sections:
    preview and commit.
 8. The `Adjustment register` tab groups operations and opens their detail.
 
+The adjustment widgets live in an `st.form`. Streamlit therefore keeps edits
+in the browser and sends amount, controlled fields, and reason together only
+when the user clicks Preview. Commit remains outside the form and uses the
+stored draft that produced the last successful authoritative preview.
+
 The following values are stored in `st.session_state` because Streamlit reruns
 the script after interactions:
 
@@ -126,6 +131,7 @@ the script after interactions:
 | `selected_row` | Complete selected API row | Context/search/commit changes |
 | `draft_key` | Stable UUID for one commit intention | Selection/commit changes |
 | `preview` | Original/reversal/adjusted API response | Selection/context changes |
+| `preview_draft` | Exact draft used to calculate `preview` | New preview/selection/context changes |
 
 The stable `draft_key` is important. Repeated clicks for the same intention use
 the same idempotency key and therefore cannot create duplicate output rows.
@@ -520,6 +526,8 @@ sequenceDiagram
     participant Calc as Calculation function
 
     User->>UI: Change amount/classification and enter reason
+    Note over User,UI: st.form batches edits without Python reruns
+    User->>UI: Click Preview adjustment
     UI->>API: POST /adjustments/preview-jobs
     API-->>UI: 202 + job ID
     API->>Service: preview(context, draft) in worker thread
