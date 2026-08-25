@@ -172,14 +172,19 @@ class PostgresOperationStore:
         self.table = f"{_identifier(schema)}.{_identifier('adjustment_operations')}"
 
     def find_by_key(self, key: str) -> dict | None:
-        """Find an existing intention by its unique retry key."""
-        query = f"SELECT operation_id,status,payload,output_ids,error_message FROM {self.table} WHERE idempotency_key=%s"
+        """Find the complete intention protected by a unique retry key."""
+        query = f"""
+            SELECT operation_id,operation_type,status,asofdate,version,fo_system,
+                   leg_flag,source_output_id,reason,payload,output_ids,error_message
+            FROM {self.table} WHERE idempotency_key=%s
+        """
         with self.connection_factory() as connection, connection.cursor() as cursor:
             cursor.execute(query, [key])
             row = cursor.fetchone()
             if not row:
                 return None
-            return dict(zip(("operation_id", "status", "payload", "output_ids", "error_message"), row))
+            names = [description.name for description in cursor.description]
+            return dict(zip(names, row))
 
     def get_operation(self, operation_id: str) -> dict | None:
         """Read the complete audit record needed by the revert workflow."""

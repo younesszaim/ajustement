@@ -62,8 +62,11 @@ class AdjustmentService:
         existing operation and never appends a second pair of output rows.
         """
         existing = self.operations.find_by_key(draft.idempotency_key)
-        if existing and existing["status"] == "COMMITTED":
-            return existing
+        requested_changes = self._requested_changes(context.leg_flag, draft)
+        if existing:
+            self._validate_retry_intention(existing, context, draft, requested_changes)
+            if existing["status"] == "COMMITTED":
+                return existing
 
         output_id = self.settings.column("output_id")
         deterministic_ids = [f"REV-{draft.idempotency_key}", f"ADJ-{draft.idempotency_key}"]
@@ -81,15 +84,6 @@ class AdjustmentService:
                 "status": "COMMITTED",
                 "output_ids": deterministic_ids,
             }
-        requested_changes = self._requested_changes(context.leg_flag, draft)
-        if existing:
-            stored_changes = existing["payload"].get("changes")
-            if stored_changes is None:  # compatibility with the first prototype payload
-                amount_key = "cash_amount_eur" if context.leg_flag == 0 else "security_amount_eur"
-                stored_changes = {amount_key: existing["payload"].get("new_amount")}
-            if stored_changes != requested_changes:
-                raise AdjustmentError("This retry key already belongs to different field changes.")
-
         preview = self.preview(context, draft)
         if existing:
             operation_id = str(existing["operation_id"])
@@ -126,6 +120,52 @@ class AdjustmentService:
                 "Output rows exist but PostgreSQL confirmation failed. Reconciliation is required."
             ) from exc
         return {"operation_id": operation_id, "status": "COMMITTED", "output_ids": ids}
+
+    def _validate_retry_intention(self, existing, context, draft, requested_changes) -> None:
+        """Prevent one retry key from representing two different adjustments.
+
+        This runs before the COMMITTED and reconciliation fast paths. Without
+        that ordering, a modified request could receive an older operation's
+        success response or reconcile rows created for another intention.
+        """
+        payload = existing.get("payload") or {}
+        stored_changes = payload.get("changes")
+        if stored_changes is None:  # compatibility with the first prototype payload
+            amount_key = "cash_amount_eur" if context.leg_flag == 0 else "security_amount_eur"
+            stored_changes = {amount_key: payload.get("new_amount")}
+
+        expected = {
+            "operation_type": "REPLACE",
+            "source_output_id": str(draft.source_output_id),
+            "asofdate": self._context_value(context.asofdate),
+            "version": self._context_value(context.version),
+            "fo_system": str(context.fo_system),
+            "leg_flag": int(context.leg_flag),
+            "reason": draft.reason.strip(),
+        }
+        mismatches = []
+        for field, requested in expected.items():
+            # Missing fields are tolerated for legacy prototype rows and small
+            # repository fakes; the current SQL store always returns all fields.
+            if field not in existing:
+                continue
+            stored = existing.get(field)
+            if field in {"asofdate", "version"}:
+                stored = self._context_value(stored)
+            elif field == "leg_flag":
+                stored = int(stored)
+            else:
+                stored = str(stored).strip() if stored is not None else ""
+            if stored != requested:
+                mismatches.append(field)
+        if stored_changes != requested_changes:
+            mismatches.append("field changes")
+        if mismatches:
+            raise AdjustmentError(
+                "This retry key belongs to a different adjustment intention "
+                f"({', '.join(mismatches)}). Preview the modified draft again "
+                "to create a new retry key."
+            )
 
     def revert(self, target_operation_id: str, reason: str, idempotency_key: str) -> dict:
         """Append a reversal of the adjusted row and restore the original row."""

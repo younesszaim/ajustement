@@ -31,6 +31,13 @@ class FakeOutput:
         self.rows.extend(deepcopy(rows))
 
 
+class FailingOutput(FakeOutput):
+    """Simulate a transactional output failure before any row is committed."""
+
+    def append(self, rows):
+        raise ValueError("simulated Vertica VARCHAR failure")
+
+
 class FakeOperations:
     def __init__(self):
         self.operations = {}
@@ -40,9 +47,8 @@ class FakeOperations:
 
     def create(self, operation):
         self.operations[operation["idempotency_key"]] = {
-            "operation_id": operation["operation_id"],
+            **deepcopy(operation),
             "status": "PENDING",
-            "payload": operation["payload"],
             "output_ids": None,
             "error_message": None,
         }
@@ -127,6 +133,71 @@ def test_commit_retry_does_not_append_duplicate_output(settings, base_row):
     assert first["status"] == second["status"] == "COMMITTED"
     assert len(output.rows) == 2
     assert operations.operations["intent-1"]["output_ids"] == ["REV-intent-1", "ADJ-intent-1"]
+
+
+def test_committed_key_rejects_changed_draft_instead_of_returning_old_success(settings, base_row):
+    output, operations = FakeOutput(base_row), FakeOperations()
+    service = AdjustmentService(output, operations, settings)
+    context = Context("2026-08-06", "2026-08-07T11:14:09", "Murex", 0)
+    original = AdjustmentDraft("ROW-1", 250.0, "First intention", "intent-1")
+
+    service.commit(context, original)
+    changed = AdjustmentDraft(
+        "ROW-1", 250.0, "First intention", "intent-1",
+        changes={"exposure_class": "CORPORATE"},
+    )
+
+    with pytest.raises(AdjustmentError, match="different adjustment intention"):
+        service.commit(context, changed)
+    assert len(output.rows) == 2
+
+
+def test_failed_key_rejects_changed_reason_and_context(settings, base_row):
+    output, operations = FakeOutput(base_row), FakeOperations()
+    service = AdjustmentService(output, operations, settings)
+    context = Context("2026-08-06", "2026-08-07T11:14:09", "Murex", 0)
+    draft = AdjustmentDraft("ROW-1", 250.0, "Original reason", "intent-1")
+    operations.create({
+        "operation_id": "operation-1", "idempotency_key": "intent-1",
+        "operation_type": "REPLACE", "asofdate": context.asofdate,
+        "version": context.version, "fo_system": context.fo_system,
+        "leg_flag": context.leg_flag, "source_output_id": draft.source_output_id,
+        "reason": draft.reason, "created_by": "limon-user",
+        "payload": {"changes": service._requested_changes(context.leg_flag, draft)},
+    })
+    operations.operations["intent-1"]["status"] = "FAILED"
+
+    with pytest.raises(AdjustmentError, match="reason"):
+        service.commit(
+            context,
+            AdjustmentDraft("ROW-1", 250.0, "Changed reason", "intent-1"),
+        )
+    with pytest.raises(AdjustmentError, match="fo_system"):
+        service.commit(
+            Context("2026-08-06", "2026-08-07T11:14:09", "Other", 0), draft
+        )
+
+
+def test_output_failure_marks_operation_failed_and_same_draft_can_retry(settings, base_row):
+    operations = FakeOperations()
+    context = Context("2026-08-06", "2026-08-07T11:14:09", "Murex", 0)
+    draft = AdjustmentDraft("ROW-1", 250.0, "Correct amount", "intent-failed")
+    failing_service = AdjustmentService(FailingOutput(base_row), operations, settings)
+
+    with pytest.raises(AdjustmentError, match="output write failed"):
+        failing_service.commit(context, draft)
+
+    assert operations.operations["intent-failed"]["status"] == "FAILED"
+    assert operations.operations["intent-failed"]["output_ids"] is None
+
+    # The infrastructure problem is now fixed. Reusing the exact same draft
+    # and key resumes the existing operation instead of creating a duplicate.
+    recovered_output = FakeOutput(base_row)
+    recovered_service = AdjustmentService(recovered_output, operations, settings)
+    result = recovered_service.commit(context, draft)
+
+    assert result["status"] == "COMMITTED"
+    assert len(recovered_output.rows) == 2
 
 
 def test_retry_repairs_postgres_after_output_was_already_written(settings, base_row):

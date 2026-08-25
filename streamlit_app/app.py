@@ -13,6 +13,7 @@ from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 
 from streamlit_app.config import load_settings
 from streamlit_app.client import AdjustmentApiClient, ApiError
+from streamlit_app.draft_state import draft_signature
 from streamlit_app.models import AdjustmentDraft, Context
 
 
@@ -40,7 +41,7 @@ def build_services():
 
 def reset_draft() -> None:
     """Forget state that becomes invalid when context or selection changes."""
-    for key in ("selected_row", "preview", "preview_draft", "draft_key"):
+    for key in ("selected_row", "preview", "preview_draft", "draft_key", "draft_signature"):
         st.session_state.pop(key, None)
 
 
@@ -349,12 +350,6 @@ with workspace:
         amount_key = "cash_amount_eur" if context.leg_flag == 0 else "security_amount_eur"
         amount_column = settings.column(amount_key)
         amount_label = settings.fields[amount_key]["label"]
-        if "draft_key" not in st.session_state:
-            # Keep one UUID for the lifetime of this draft. Preview does not use
-            # it durably, while every commit retry must reuse it to avoid duplicate
-            # reversal/adjusted output rows.
-            st.session_state.draft_key = str(uuid4())
-
         selected_output_id = str(selected_row[settings.column("output_id")])
         # A form batches widget changes in the browser. Typing a reason or
         # choosing several values therefore does not rerun the complete app;
@@ -408,6 +403,18 @@ with workspace:
             elif not has_changes:
                 st.error("Change at least one value before preview.")
             else:
+                # One retry key belongs to one complete intention. An unchanged
+                # retry keeps it; editing a value or reason creates a new one.
+                signature = draft_signature(
+                    context=context,
+                    source_output_id=selected_output_id,
+                    new_amount=new_amount,
+                    changes=field_changes,
+                    reason=reason,
+                )
+                if st.session_state.get("draft_signature") != signature:
+                    st.session_state.draft_key = str(uuid4())
+                    st.session_state.draft_signature = signature
                 draft = AdjustmentDraft(
                     source_output_id=selected_output_id,
                     new_amount=new_amount,

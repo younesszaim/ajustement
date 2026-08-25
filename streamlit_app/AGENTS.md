@@ -147,6 +147,11 @@ whereas that table is durable audit metadata.
 - Selected-row change clears stale preview and creates a new draft intention.
 - Field or amount change requires a new preview before commit.
 - Preserve the draft and stable idempotency key after uncertain commit failure.
+- Treat context, source row, amount, controlled changes and trimmed reason as
+  the complete draft identity. A modified draft gets a new key at Preview;
+  an exact retry keeps the existing key.
+- Validate a stored retry intention before any COMMITTED fast path or output
+  reconciliation. Never return an older success for changed request content.
 - Search remains server-bounded; AG Grid may refine only returned rows.
 - Show original, reversal, and adjusted separately and label them clearly.
 - Destructive revert is red, requires a reason, and is located beside Review.

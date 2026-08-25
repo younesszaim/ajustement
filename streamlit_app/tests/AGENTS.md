@@ -28,6 +28,8 @@ A replacement change normally covers:
 - invalid controlled field/value and no-op change;
 - calculation start order and returned steps;
 - first commit, idempotent retry and retry-key conflict;
+- changed amount/field/reason/context/source after failure or commit;
+- complete-intention validation before COMMITTED return and reconciliation;
 - output failure and metadata-confirmation failure.
 
 A revert change normally covers:

@@ -108,3 +108,30 @@ PYTHONPATH=. .venv/bin/python -m pytest streamlit_app/tests -q
 7. If Vertica succeeds but PostgreSQL confirmation fails, retrying the same
    intention detects its `adjustment_reference` in Vertica and only completes
    PostgreSQL; it does not insert duplicate output rows.
+
+### Draft identity and safe retries
+
+An idempotency key identifies one complete adjustment intention, not merely a
+selected trade. Its identity includes the full context, source output ID,
+applicable amount, every controlled field change, and the trimmed audit reason.
+
+Streamlit stores a deterministic `draft_signature` for those inputs. Previewing
+the same values keeps the existing `draft_key`; changing any value creates a
+new key before preview. Commit always submits the immutable `preview_draft`, so
+unsubmitted widget edits cannot alter a previously previewed result.
+
+| Situation | Key behavior | Expected result | User action |
+|---|---|---|---|
+| First preview | Create a new key | Read-only preview | Review, then commit |
+| Exact retry after timeout or uncertain response | Keep the key | Return/finish the same operation without duplicates | Retry Commit |
+| Output insert fails before rows exist | Keep the key only while the draft is unchanged | PostgreSQL is `FAILED`; output has no generated pair | Fix output, then retry the identical draft |
+| User changes amount, controlled field or reason after failure | Create a new key on the next Preview | New independent intention | Preview again, then commit |
+| User changes context or selected row | Clear draft, signature, key and preview | Stale intention cannot be committed | Search/select and preview again |
+| Output exists but PostgreSQL confirmation failed | Keep the key | Retry only confirms metadata | Retry the identical commit |
+| Same key arrives with different content | Reject with HTTP 409 | No append and no old success returned | Preview the modified draft for a new key |
+| Same key and operation is already `COMMITTED` | Keep the key | Existing success is returned | No further action |
+| Source row became inactive before commit | Draft is stale | HTTP 409, no write | Refresh and adjust the current active row |
+
+The backend validates the complete stored intention before both the `COMMITTED`
+fast path and partial-failure reconciliation. A reused key therefore cannot
+silently return an older success or confirm rows belonging to another draft.

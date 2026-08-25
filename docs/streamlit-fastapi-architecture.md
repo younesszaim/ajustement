@@ -129,12 +129,15 @@ the script after interactions:
 | `search_text` | Search input | User clicks Clear |
 | `search_results` | Rows returned by `/trades` | Context/search/commit changes |
 | `selected_row` | Complete selected API row | Context/search/commit changes |
-| `draft_key` | Stable UUID for one commit intention | Selection/commit changes |
+| `draft_key` | Stable UUID for one exact commit intention | Draft/context/selection/commit changes |
+| `draft_signature` | Canonical identity of context, source, amount, fields and reason | Draft/context/selection/commit changes |
 | `preview` | Original/reversal/adjusted API response | Selection/context changes |
 | `preview_draft` | Exact draft used to calculate `preview` | New preview/selection/context changes |
 
-The stable `draft_key` is important. Repeated clicks for the same intention use
-the same idempotency key and therefore cannot create duplicate output rows.
+The stable `draft_key` is important. Repeated clicks for the exact same
+intention use the same idempotency key and therefore cannot create duplicate
+output rows. `draft_signature()` lives in a pure module so the transition is
+testable without running Streamlit.
 
 ### `streamlit_app/client.py`
 
@@ -601,19 +604,23 @@ sequenceDiagram
 
     User->>UI: Retry same commit intention
     UI->>Service: Same idempotency key through API
-    Service->>Meta: find_by_key(key)
+    Service->>Meta: find_by_key(key), including stored intention
     Meta-->>Service: PENDING or FAILED operation
-    Service->>Output: reference_exists(key)
-    alt Output rows already exist
-        Output-->>Service: Yes
-        Service->>Meta: Mark COMMITTED with deterministic IDs
-        Service-->>UI: COMMITTED, no duplicate insert
-    else Output rows do not exist
-        Output-->>Service: No
-        Service->>Service: Validate stored changes equal retry changes
-        Service->>Output: Re-read active row and append rows
-        Service->>Meta: Mark COMMITTED
-        Service-->>UI: COMMITTED
+    Service->>Service: Compare type, context, source, reason and changes
+    alt Retry content differs
+        Service-->>UI: HTTP 409; preview modified draft for a new key
+    else Retry content is identical
+        Service->>Output: reference_exists(key)
+        alt Output rows already exist
+            Output-->>Service: Yes
+            Service->>Meta: Mark COMMITTED with deterministic IDs
+            Service-->>UI: COMMITTED, no duplicate insert
+        else Output rows do not exist
+            Output-->>Service: No
+            Service->>Output: Re-read active row and append rows
+            Service->>Meta: Mark COMMITTED
+            Service-->>UI: COMMITTED
+        end
     end
 ```
 
@@ -624,8 +631,65 @@ Failure meanings:
 | Invalid field/value or stale context | HTTP 409, no write |
 | Output insert fails | Operation becomes `FAILED`, HTTP 409 |
 | Output succeeds but metadata confirmation fails | User sees reconciliation error; same-key retry repairs metadata |
-| Same key reused with different changes | HTTP 409, no second intention |
+| Same key reused with different context, source, reason or changes | HTTP 409 before old-success return or reconciliation; no write |
 | API/database unavailable | HTTP 503 or `ApiError` in Streamlit |
+
+#### 6.5.1 Key lifecycle in Streamlit
+
+The browser-facing workflow distinguishes a retry from a new intention:
+
+```mermaid
+flowchart TD
+    A["User submits Preview"] --> B["Build canonical draft signature"]
+    B --> C{"Signature equals stored signature?"}
+    C -- "Yes" --> D["Reuse draft_key"]
+    C -- "No" --> E["Generate new draft_key and store signature"]
+    D --> F["Preview through FastAPI"]
+    E --> F
+    F --> G{"Commit result"}
+    G -- "Success" --> H["Clear selection, preview, key and signature"]
+    G -- "Uncertain or failed" --> I["Keep preview draft, key and signature"]
+    I --> J{"User modifies and previews again?"}
+    J -- "No, exact retry" --> D
+    J -- "Yes" --> E
+```
+
+The signature contains the full context, source output ID, amount, controlled
+changes and trimmed reason. Dictionary keys are sorted and numeric amounts are
+normalized to floats, so harmless ordering or whitespace differences do not
+create a new intention.
+
+#### 6.5.2 Backend validation order
+
+`AdjustmentService.commit()` deliberately uses this order:
+
+1. Read the operation by key, including its complete stored intention.
+2. Rebuild the requested semantic changes from the incoming draft.
+3. Compare operation type, full context, source row, reason and changes.
+4. Reject a mismatch with HTTP 409 before checking `COMMITTED` or output rows.
+5. Return an existing `COMMITTED` operation only when the intention matches.
+6. For an identical incomplete operation, check `adjustment_reference` and
+   confirm PostgreSQL without inserting duplicates when output is found.
+7. Otherwise re-read the active row, rebuild preview, append the pair and mark
+   the operation `COMMITTED`.
+
+This protects two subtle cases: a changed draft cannot receive an older
+operation's successful response, and reconciliation cannot confirm rows created
+for a different draft.
+
+#### 6.5.3 Operational case matrix
+
+| Stored metadata | Output reference | Incoming request | Backend behavior | Next action |
+|---|---:|---|---|---|
+| None | No | New intention | Create `PENDING`, append pair, confirm `COMMITTED` | None |
+| `COMMITTED` | Yes | Exact retry | Return existing operation | None |
+| `COMMITTED` | Yes | Changed intention, same key | HTTP 409 before fast path | Preview again for a new key |
+| `FAILED` | No | Exact retry | Re-read active source and retry append | Retry after fixing Vertica |
+| `FAILED` | No | Changed intention, same key | HTTP 409 | Preview again for a new key |
+| `PENDING` or `FAILED` | Yes | Exact retry | Skip append; confirm deterministic IDs in PostgreSQL | Retry same commit |
+| `PENDING` or `FAILED` | Yes | Changed intention, same key | HTTP 409 before reconciliation | Investigate key misuse; preview as new intention |
+| Any incomplete status | No | Source no longer active | HTTP 409, no append | Refresh and select active row |
+| Store unavailable | Unknown | Any | HTTP 503 / visible `ApiError` | Restore connectivity; preserve uncertain retry identity |
 
 ### 6.6 Adjustment register
 
@@ -712,13 +776,13 @@ One row represents one user intention, not one output row.
 | Column | Meaning |
 |---|---|
 | `operation_id` | Internal audit UUID |
-| `idempotency_key` | Unique retry identity from Streamlit |
+| `idempotency_key` | Unique retry identity for one complete Streamlit intention |
 | `operation_type` | `REPLACE` or `REVERT` in the current slice |
 | `status` | PENDING, COMMITTED, FAILED, etc. |
 | context columns | Date, version, FO system and leg |
 | `source_output_id` | Row selected by the user |
 | `reason` / `created_by` | Human audit information |
-| `payload` | JSON semantic changes requested |
+| `payload` | JSON semantic changes requested and compared during every retry |
 | `output_ids` | IDs of the generated output rows |
 | timestamps | Creation and successful commit times |
 | `reverts_operation_id` | Target REPLACE operation for a REVERT |
