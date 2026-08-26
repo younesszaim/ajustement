@@ -13,7 +13,7 @@ from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 
 from streamlit_app.config import load_settings
 from streamlit_app.client import AdjustmentApiClient, ApiError
-from streamlit_app.draft_state import draft_signature
+from streamlit_app.draft_state import cancellation_signature, draft_signature
 from streamlit_app.models import AdjustmentDraft, Context
 
 
@@ -181,10 +181,16 @@ def review_adjustment(operation: dict, settings):
 @st.dialog("Revert committed adjustment")
 def revert_adjustment_dialog(operation: dict, api):
     """Collect explicit confirmation and submit one idempotent revert."""
-    st.warning(
-        "This appends a reversal of the adjusted row and a restored copy of the original row. "
-        "Existing history is never deleted."
-    )
+    if operation.get("operation_type") == "CANCEL":
+        st.warning(
+            "This restores the cancelled trade as a new active audited row. "
+            "The cancellation and original history are never deleted."
+        )
+    else:
+        st.warning(
+            "This appends a reversal of the adjusted row and a restored copy of the original row. "
+            "Existing history is never deleted."
+        )
     st.caption(
         f"{operation.get('fo_system')} · {operation.get('asofdate')} · "
         f"{operation.get('version')}"
@@ -221,6 +227,55 @@ def revert_adjustment_dialog(operation: dict, api):
             st.error(str(exc))
 
 
+@st.dialog("Cancel selected trade")
+def cancel_trade_dialog(context, selected_row: dict, settings, api):
+    """Confirm and commit cancellation without a separate preview button."""
+    source_id = str(selected_row[settings.column("output_id")])
+    st.error(
+        "This action neutralizes the complete active business effect. It appends "
+        "one reversal row and does not create a replacement row."
+    )
+    st.dataframe(display_row(selected_row, settings), hide_index=True, use_container_width=True)
+    reason = st.text_area(
+        "Cancellation reason",
+        placeholder="Explain why this trade must be cancelled",
+        key=f"cancel-reason-{source_id}",
+    )
+    confirmed = st.checkbox(
+        "I understand that the trade will have no active row until this cancellation is reverted.",
+        key=f"cancel-confirm-{source_id}",
+    )
+    signature_name = f"cancel-signature-{source_id}"
+    key_name = f"cancel-key-{source_id}"
+    if st.button(
+        "⛔ Confirm cancellation",
+        type="primary",
+        disabled=not reason.strip() or not confirmed,
+        use_container_width=True,
+    ):
+        signature = cancellation_signature(
+            context=context,
+            source_output_id=source_id,
+            reason=reason,
+        )
+        if st.session_state.get(signature_name) != signature:
+            st.session_state[key_name] = str(uuid4())
+            st.session_state[signature_name] = signature
+        try:
+            result = api.cancel(
+                context, source_id, reason.strip(), st.session_state[key_name]
+            )
+            st.session_state.workspace_success = (
+                f"Cancellation {result['operation_id']} is {result['status']}."
+            )
+            st.session_state.pop("search_results", None)
+            reset_draft()
+            st.rerun()
+        except ApiError as exc:
+            # Keep key + signature for an exact retry after an uncertain error.
+            st.error(str(exc))
+
+
 st.title("LiMon Adjustment Manager")
 st.caption("Simple architecture · output table + one PostgreSQL operation table")
 
@@ -242,6 +297,8 @@ workspace, register = st.tabs(["Adjustment workspace", "Adjustment register"])
 # snapshot context -> server-side search -> one selected row -> draft -> preview
 # -> commit. A downstream section is rendered only when its upstream data exists.
 with workspace:
+    if st.session_state.get("workspace_success"):
+        st.success(st.session_state.pop("workspace_success"))
     st.subheader("1. Choose the output context")
 
     # Dates, versions and FO systems come from the output database through the
@@ -389,6 +446,15 @@ with workspace:
             )
             preview_clicked = st.form_submit_button("Preview adjustment", type="primary")
 
+        cancel_col, _ = st.columns([1, 4])
+        if cancel_col.button(
+            "⛔ Cancel trade",
+            key=f"cancel-trade-{selected_output_id}",
+            type="primary",
+            use_container_width=True,
+        ):
+            cancel_trade_dialog(context, selected_row, settings, api)
+
         if preview_clicked:
             # A newly submitted draft invalidates the former preview before any
             # validation or API call. Commit can never use a stale result.
@@ -534,7 +600,7 @@ with register:
                                 review_adjustment(operation, settings)
                             can_revert = (
                                 operation.get("status") == "COMMITTED"
-                                and operation.get("operation_type") == "REPLACE"
+                                and operation.get("operation_type") in {"REPLACE", "CANCEL"}
                             )
                             if can_revert and revert_col.button(
                                 "Revert",

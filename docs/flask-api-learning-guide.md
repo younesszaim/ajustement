@@ -108,6 +108,7 @@ to both adapters.
 | `POST /adjustments/preview-jobs` | `start_preview_job()` | `PreviewJobManager.submit()` |
 | `GET /adjustments/preview-jobs/<job_id>` | `preview_job_status()` | `PreviewJobManager.get()` |
 | `POST /adjustments/commit` | `commit()` | `service.commit()` |
+| `POST /adjustments/cancel` | `cancel_trade()` | `service.commit_cancel()` |
 | `GET /adjustments` | `adjustments()` | `operations.list_recent()` |
 | `POST /adjustments/<operation_id>/revert` | `revert_adjustment()` | `service.revert()` |
 

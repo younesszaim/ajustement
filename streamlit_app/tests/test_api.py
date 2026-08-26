@@ -22,7 +22,12 @@ class OperationsStub:
 
 
 class ServiceStub:
-    pass
+    def commit_cancel(self, context, draft):
+        return {
+            "operation_id": "CANCEL-OP-1",
+            "status": "COMMITTED",
+            "output_ids": [f"REV-{draft.idempotency_key}"],
+        }
 
 
 def test_context_search_and_register_routes(monkeypatch):
@@ -46,3 +51,19 @@ def test_context_search_and_register_routes(monkeypatch):
     assert response.status_code == 200
     assert response.json()["items"][0]["output_record_id"] == "ROW-1"
     assert client.get("/adjustments").json()["items"][0]["status"] == "COMMITTED"
+    cancellation = client.post(
+        "/adjustments/cancel",
+        json={
+            "context": {
+                "asofdate": "2026-08-06",
+                "version": "2026-08-07T11:14:09",
+                "fo_system": "Murex",
+                "leg_flag": 0,
+            },
+            "source_output_id": "ROW-1",
+            "reason": "Cancel duplicate trade",
+            "idempotency_key": "cancel-1",
+        },
+    )
+    assert cancellation.status_code == 200
+    assert cancellation.json()["output_ids"] == ["REV-cancel-1"]

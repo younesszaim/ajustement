@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from streamlit_app.config import load_settings
-from streamlit_app.models import AdjustmentDraft, Context
+from streamlit_app.models import AdjustmentDraft, CancellationDraft, Context
 from streamlit_app.service import AdjustmentError, AdjustmentService
 
 
@@ -18,7 +18,14 @@ class FakeOutput:
         self.by_id = {row["bi_id"]: deepcopy(row)}
 
     def get_active(self, output_id):
-        return deepcopy(self.row) if output_id == self.row["bi_id"] else None
+        if output_id != self.row["bi_id"]:
+            return None
+        cancelled = any(
+            row.get("record_type") == "REVERSAL"
+            and row.get("parent_output_record_id") == output_id
+            for row in self.rows
+        )
+        return None if cancelled else deepcopy(self.row)
 
     def get_by_id(self, output_id):
         value = self.by_id.get(output_id)
@@ -29,6 +36,7 @@ class FakeOutput:
 
     def append(self, rows):
         self.rows.extend(deepcopy(rows))
+        self.by_id.update({row["bi_id"]: deepcopy(row) for row in rows})
 
 
 class FailingOutput(FakeOutput):
@@ -198,6 +206,64 @@ def test_output_failure_marks_operation_failed_and_same_draft_can_retry(settings
 
     assert result["status"] == "COMMITTED"
     assert len(recovered_output.rows) == 2
+
+
+def test_cancel_appends_only_one_reversal_and_leaves_no_active_row(settings, base_row):
+    output, operations = FakeOutput(base_row), FakeOperations()
+    service = AdjustmentService(output, operations, settings)
+    context = Context("2026-08-06", "2026-08-07T11:14:09", "Murex", 0)
+    draft = CancellationDraft("ROW-1", "Source owner cancelled trade", "cancel-1")
+
+    preview = service.preview_cancel(context, "ROW-1")
+    result = service.commit_cancel(context, draft)
+    retry = service.commit_cancel(context, draft)
+
+    assert preview.original["Cash_Amount_EUR"] == 100.0
+    assert preview.reversal["Cash_Amount_EUR"] == -100.0
+    assert result["status"] == retry["status"] == "COMMITTED"
+    assert result["output_ids"] == ["REV-cancel-1"]
+    assert len(output.rows) == 1
+    assert output.rows[0]["record_type"] == "REVERSAL"
+    assert output.rows[0]["parent_output_record_id"] == "ROW-1"
+    assert output.get_active("ROW-1") is None
+    assert operations.operations["cancel-1"]["operation_type"] == "CANCEL"
+
+
+def test_cancel_retry_key_rejects_changed_reason(settings, base_row):
+    output, operations = FakeOutput(base_row), FakeOperations()
+    service = AdjustmentService(output, operations, settings)
+    context = Context("2026-08-06", "2026-08-07T11:14:09", "Murex", 0)
+    service.commit_cancel(
+        context, CancellationDraft("ROW-1", "First reason", "cancel-1")
+    )
+
+    with pytest.raises(AdjustmentError, match="different cancellation intention"):
+        service.commit_cancel(
+            context, CancellationDraft("ROW-1", "Changed reason", "cancel-1")
+        )
+
+
+def test_revert_cancellation_appends_only_restored_active_row(settings, base_row):
+    output, operations = FakeOutput(base_row), FakeOperations()
+    service = AdjustmentService(output, operations, settings)
+    context = Context("2026-08-06", "2026-08-07T11:14:09", "Murex", 0)
+    cancel_result = service.commit_cancel(
+        context, CancellationDraft("ROW-1", "Cancel", "cancel-1")
+    )
+    cancel_operation_id = cancel_result["operation_id"]
+
+    result = service.revert(cancel_operation_id, "Restore valid trade", "restore-1")
+
+    assert result["status"] == "COMMITTED"
+    assert result["output_ids"] == ["ADJ-restore-1"]
+    assert len(output.rows) == 2
+    restored = output.rows[-1]
+    assert restored["Cash_Amount_EUR"] == 100.0
+    assert restored["record_type"] == "ADJUSTED"
+    assert restored["source_output_record_id"] == "ROW-1"
+    assert restored["parent_output_record_id"] == "REV-cancel-1"
+    target = operations.get_operation(cancel_operation_id)
+    assert target["status"] == "REVERTED"
 
 
 def test_retry_repairs_postgres_after_output_was_already_written(settings, base_row):

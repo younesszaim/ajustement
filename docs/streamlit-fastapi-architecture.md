@@ -22,8 +22,8 @@ The current vertical slice supports:
 - Supabase as a development simulation of both databases;
 - a real Vertica output plus PostgreSQL metadata configuration for production.
 
-It does not yet implement cancellation, proxy trades, multi-trade batch
-commit, authentication or the final production LiMon calculation library.
+It does not yet implement proxy trades, multi-trade batch commit,
+authentication or the final production LiMon calculation library.
 
 ## 2. Architecture at a glance
 
@@ -433,6 +433,7 @@ PYTHONPATH=. .venv/bin/python -m pytest streamlit_app/tests -q
 | POST | `/adjustments/preview-jobs` | Start an asynchronous preview | Output read |
 | GET | `/adjustments/preview-jobs/{job_id}` | Read stage/progress/result | In-memory job state |
 | POST | `/adjustments/commit` | Append and audit an adjustment | Both |
+| POST | `/adjustments/cancel` | Append one audited cancellation reversal | Both |
 | GET | `/adjustments?limit=...` | Adjustment history | PostgreSQL |
 | POST | `/adjustments/{id}/revert` | Append an audited restoration | Both |
 
@@ -744,6 +745,52 @@ sequenceDiagram
 If the replacement was `B → -B + A`, the revert is `A → -A + B restored`.
 No existing output row is updated or deleted.
 
+### 6.8 Cancel and restore a trade
+
+Cancellation is not a replacement with a zero amount. It neutralizes every
+configured additive value and produces no adjusted row.
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant UI as Streamlit
+    participant API as FastAPI or Flask
+    participant Service as AdjustmentService
+    participant Meta as PostgreSQL operations
+    participant Output as Output database
+
+    User->>UI: Click Cancel trade
+    UI-->>User: Confirmation, source row and required reason
+    User->>UI: Confirm cancellation
+    UI->>API: POST /adjustments/cancel
+    API->>Service: commit_cancel(context, cancellation draft)
+    Service->>Meta: Check key and complete cancellation intention
+    Service->>Output: Re-read active row in exact context
+    Service->>Service: Copy row and negate every additive column
+    Service->>Meta: Insert CANCEL operation PENDING
+    Service->>Output: Append REV-{key} only
+    Service->>Meta: Mark COMMITTED with one output ID
+    Service-->>UI: COMMITTED
+    UI->>UI: Clear stale search and selected row
+```
+
+The active-row query excludes the source because the reversal points to it
+through `parent_output_id`. An exact repeated request returns or repairs the
+same operation. Reusing the key with another context, source or reason is
+rejected before the committed/reconciliation fast paths.
+
+A revert of `CANCEL` differs from a revert of `REPLACE`:
+
+| Target operation | Revert output journal | Effective result |
+|---|---|---|
+| `REPLACE` | negative current adjusted row + restored original | restored copy active |
+| `CANCEL` | restored original copy only | restored copy active |
+
+For a cancellation revert, the restored row has `source_output_id` equal to the
+original output ID and `parent_output_id` equal to the cancellation reversal ID.
+PostgreSQL marks the original `CANCEL` operation `REVERTED` and records the new
+`REVERT` operation; no historical row is changed or deleted.
+
 ## 7. Storage model
 
 ### Output table
@@ -777,7 +824,7 @@ One row represents one user intention, not one output row.
 |---|---|
 | `operation_id` | Internal audit UUID |
 | `idempotency_key` | Unique retry identity for one complete Streamlit intention |
-| `operation_type` | `REPLACE` or `REVERT` in the current slice |
+| `operation_type` | `REPLACE`, `CANCEL` or `REVERT` in the current slice |
 | `status` | PENDING, COMMITTED, FAILED, etc. |
 | context columns | Date, version, FO system and leg |
 | `source_output_id` | Row selected by the user |

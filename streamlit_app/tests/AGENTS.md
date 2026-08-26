@@ -39,6 +39,13 @@ A revert change normally covers:
 - retry-key conflict and idempotent recovery;
 - atomic metadata relationship between revert and target.
 
+A cancellation change normally covers:
+
+- preview/build of one negative reversal and no replacement;
+- one generated output ID, inactive source and idempotent exact retry;
+- changed-key intention conflicts and output/metadata partial failure;
+- revert through one restored active row linked to the cancellation.
+
 Run:
 
 ```bash

@@ -96,6 +96,19 @@ class AdjustmentApiClient:
             "POST", "/adjustments/commit", json=self.adjustment_body(context, draft)
         )
 
+    def cancel(self, context, source_output_id: str, reason: str, idempotency_key: str):
+        """Append one audited reversal and leave the selected trade inactive."""
+        return self._request(
+            "POST",
+            "/adjustments/cancel",
+            json={
+                "context": context.__dict__,
+                "source_output_id": source_output_id,
+                "reason": reason,
+                "idempotency_key": idempotency_key,
+            },
+        )
+
     def adjustments(self, limit=1000):
         """Fetch operation metadata for the Adjustment Register."""
         return self._request("GET", "/adjustments", params={"limit": limit})["items"]

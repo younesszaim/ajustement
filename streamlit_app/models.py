@@ -25,9 +25,24 @@ class AdjustmentDraft:
 
 
 @dataclass(frozen=True)
+class CancellationDraft:
+    """One request to neutralize an active row with a single reversal."""
+    source_output_id: str
+    reason: str
+    idempotency_key: str
+
+
+@dataclass(frozen=True)
 class Preview:
     """The three rows displayed before an adjustment is committed."""
     original: dict
     reversal: dict
     adjusted: dict
     calculation_steps: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class CancellationPreview:
+    """Read-only view of the active row and its future cancellation row."""
+    original: dict
+    reversal: dict

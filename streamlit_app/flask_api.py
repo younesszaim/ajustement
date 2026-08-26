@@ -13,9 +13,9 @@ from dataclasses import asdict
 from flask import Flask, jsonify, request
 from pydantic import ValidationError
 
-from .api_models import AdjustmentBody, RevertBody
+from .api_models import AdjustmentBody, CancellationBody, RevertBody
 from .jobs import PreviewJobManager
-from .models import AdjustmentDraft, Context
+from .models import AdjustmentDraft, CancellationDraft, Context
 from .runtime import build_runtime
 from .service import AdjustmentError
 
@@ -210,6 +210,30 @@ def create_app(runtime_builder=build_runtime, preview_manager=None) -> Flask:
             return jsonify(detail=str(exc)), 409
         except Exception:
             return jsonify(detail="Adjustment commit failed"), 503
+
+    @flask_app.post("/adjustments/cancel")
+    def cancel_trade():
+        """Append one reversal for a validated cancellation request."""
+        try:
+            body = CancellationBody.model_validate(request.get_json(silent=True) or {})
+        except ValidationError as exc:
+            return _validation_error(exc)
+        dependencies = runtime()
+        if dependencies is None:
+            return jsonify(detail="Database configuration is unavailable"), 503
+        *_, service = dependencies
+        context = Context(**body.context.model_dump())
+        draft = CancellationDraft(
+            source_output_id=body.source_output_id,
+            reason=body.reason.strip(),
+            idempotency_key=body.idempotency_key,
+        )
+        try:
+            return jsonify(service.commit_cancel(context, draft))
+        except AdjustmentError as exc:
+            return jsonify(detail=str(exc)), 409
+        except Exception:
+            return jsonify(detail="Trade cancellation failed"), 503
 
     @flask_app.get("/adjustments")
     def adjustments():

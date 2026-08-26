@@ -8,8 +8,9 @@ request touches more than one layer.
 ## Product and architecture
 
 The application lets one user select an exact output context, find an active
-trade, preview an adjustment, commit an append-only journal pair, inspect the
-register, and revert a committed adjustment through another journal pair.
+trade, preview an adjustment, commit an append-only journal pair, cancel a trade
+with one reversal, inspect the register, and revert committed adjustments or
+cancellations through an audited journal.
 
 ```text
 Streamlit app.py
@@ -36,6 +37,8 @@ put SQL in routes or business row construction in UI code.
   `security_amount_eur`. Leg is context, never an editable field.
 - Output facts are append-only. Never `UPDATE` or `DELETE` output rows.
 - Replacement commit appends `-original` REVERSAL plus recalculated ADJUSTED.
+- Cancellation appends only `-active` REVERSAL and leaves no active row.
+- Reverting cancellation appends only a restored ADJUSTED copy.
 - Revert appends `-active adjusted` REVERSAL plus restored original values.
 - Revert marks metadata status; it never erases the original operation.
 - Preview and commit share `AdjustmentService._build_rows()`.

@@ -22,12 +22,12 @@ small API; the API calls `AdjustmentService` and the two storage classes.
 - Cash (`leg_flag=0`) or Titre (`leg_flag=1`) amount adjustment;
 - original/reversal/adjusted preview;
 - append-only Vertica commit with idempotent retry;
+- one-row append-only trade cancellation and audited restoration;
 - audited append-only revert of a committed replacement;
 - global PostgreSQL operation register.
 
-Cancel, revert, proxy creation and multi-trade commit are deliberately not in
-this first validation slice. They should only be migrated after this smaller
-model is accepted.
+Proxy creation and multi-trade commit are deliberately not in this validation
+slice yet.
 
 ## Database preparation
 
@@ -149,3 +149,32 @@ unsubmitted widget edits cannot alter a previously previewed result.
 The backend validates the complete stored intention before both the `COMMITTED`
 fast path and partial-failure reconciliation. A reused key therefore cannot
 silently return an older success or confirm rows belonging to another draft.
+
+## Cancel and restore a trade
+
+The selected active row has a destructive **Cancel trade** action. It opens a
+confirmation dialog, requires a reason and explicit acknowledgement, then calls
+`POST /adjustments/cancel`. There is no separate cancellation-preview button.
+
+Cancellation never updates or deletes the selected row:
+
+```text
+active BASE/ADJUSTED row
+└── REV-{cancel-key}   negative additive values, parent=active row
+```
+
+The reversal mathematically neutralizes all configured additive columns and the
+source row disappears from active search. PostgreSQL records one `CANCEL`
+operation with one output ID. Exact retries reuse the key; editing the reason
+creates a new key when confirmation runs again.
+
+The register allows a committed cancellation to be reverted. That revert
+appends one restored `ADJUSTED` copy linked to the cancellation row:
+
+```text
+original active row
+└── cancellation reversal
+    └── ADJ-{revert-key}   restored values, active again
+```
+
+Both the `CANCEL` and its `REVERT` remain visible in audit history.

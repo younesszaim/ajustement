@@ -6,9 +6,9 @@ from dataclasses import asdict
 
 from fastapi import FastAPI, HTTPException, Query
 
-from .api_models import AdjustmentBody, RevertBody
+from .api_models import AdjustmentBody, CancellationBody, RevertBody
 from .jobs import PreviewJobManager
-from .models import AdjustmentDraft, Context
+from .models import AdjustmentDraft, CancellationDraft, Context
 from .runtime import build_runtime
 from .service import AdjustmentError
 
@@ -163,6 +163,38 @@ def commit(body: AdjustmentBody):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Adjustment commit failed") from exc
+
+
+@app.post("/adjustments/cancel")
+def cancel_trade(body: CancellationBody):
+    """Cancel one active trade by appending a single audited reversal.
+
+    Example body::
+
+        {
+          "context": {"asofdate": "2026-08-06", "version": "v1",
+                      "fo_system": "Murex", "leg_flag": 0},
+          "source_output_id": "ROW-1",
+          "reason": "Trade cancelled by the source owner",
+          "idempotency_key": "one-uuid-for-this-exact-cancellation"
+        }
+
+    The route never updates or deletes the source row and does not append an
+    adjusted replacement. An exact retry reuses the same idempotency key.
+    """
+    *_, service = runtime()
+    context = Context(**body.context.model_dump())
+    draft = CancellationDraft(
+        source_output_id=body.source_output_id,
+        reason=body.reason.strip(),
+        idempotency_key=body.idempotency_key,
+    )
+    try:
+        return service.commit_cancel(context, draft)
+    except AdjustmentError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Trade cancellation failed") from exc
 
 
 @app.get("/adjustments")

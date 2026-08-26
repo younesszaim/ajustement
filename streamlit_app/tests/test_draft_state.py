@@ -1,4 +1,4 @@
-from streamlit_app.draft_state import draft_signature
+from streamlit_app.draft_state import cancellation_signature, draft_signature
 from streamlit_app.models import Context
 
 
@@ -32,3 +32,19 @@ def test_signature_changes_when_any_intention_input_changes():
         {**common, "context": Context("2026-08-06", "v2", "Murex", 0)},
     ]
     assert all(draft_signature(**variant) != baseline for variant in variants)
+
+
+def test_cancellation_signature_keeps_exact_retry_but_changes_with_reason():
+    context = Context("2026-08-06", "v1", "Murex", 0)
+    first = cancellation_signature(
+        context=context, source_output_id="ROW-1", reason="  Cancel duplicate  "
+    )
+    retry = cancellation_signature(
+        context=context, source_output_id="ROW-1", reason="Cancel duplicate"
+    )
+    changed = cancellation_signature(
+        context=context, source_output_id="ROW-1", reason="Different reason"
+    )
+
+    assert first == retry
+    assert changed != first

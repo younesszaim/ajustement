@@ -24,3 +24,11 @@ class AdjustmentBody(BaseModel):
 class RevertBody(BaseModel):
     reason: str = Field(min_length=1)
     idempotency_key: str
+
+
+class CancellationBody(BaseModel):
+    """HTTP contract for a one-row append-only trade cancellation."""
+    context: ContextBody
+    source_output_id: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    idempotency_key: str = Field(min_length=1)

@@ -7,7 +7,7 @@ from datetime import date, datetime
 from importlib import import_module
 from uuid import uuid4
 
-from .models import Preview
+from .models import CancellationPreview, Preview
 
 
 class AdjustmentError(Exception):
@@ -121,6 +121,125 @@ class AdjustmentService:
             ) from exc
         return {"operation_id": operation_id, "status": "COMMITTED", "output_ids": ids}
 
+    def preview_cancel(self, context, source_output_id: str) -> CancellationPreview:
+        """Build the one reversal that would neutralize an active output row."""
+        original = self.output.get_active(source_output_id)
+        if original is None:
+            raise AdjustmentError(
+                "The selected output row is no longer active. Refresh the search."
+            )
+        self._validate_context(original, context)
+        return CancellationPreview(
+            original=deepcopy(original),
+            reversal=self._build_cancel_row(original, "PREVIEW"),
+        )
+
+    def commit_cancel(self, context, draft) -> dict:
+        """Append one idempotent reversal and audit a trade cancellation."""
+        existing = self.operations.find_by_key(draft.idempotency_key)
+        expected_changes = {"business_effect": "CANCELLED"}
+        if existing:
+            self._validate_cancel_retry(existing, context, draft, expected_changes)
+            if existing["status"] == "COMMITTED":
+                return existing
+
+        output_id = self.settings.column("output_id")
+        deterministic_ids = [f"REV-{draft.idempotency_key}"]
+        if existing and self.output.reference_exists(draft.idempotency_key):
+            try:
+                self.operations.set_status(
+                    str(existing["operation_id"]), "COMMITTED", output_ids=deterministic_ids
+                )
+            except Exception as exc:
+                raise AdjustmentError(
+                    "Cancellation output exists but PostgreSQL confirmation still fails. "
+                    "Reconciliation is required."
+                ) from exc
+            return {
+                "operation_id": str(existing["operation_id"]),
+                "status": "COMMITTED",
+                "output_ids": deterministic_ids,
+            }
+
+        original = self.output.get_active(draft.source_output_id)
+        if original is None:
+            raise AdjustmentError(
+                "The selected output row is no longer active. Refresh the search."
+            )
+        self._validate_context(original, context)
+        reversal = self._build_cancel_row(original, draft.idempotency_key)
+
+        if existing:
+            operation_id = str(existing["operation_id"])
+        else:
+            operation_id = str(uuid4())
+            self.operations.create(
+                {
+                    "operation_id": operation_id,
+                    "idempotency_key": draft.idempotency_key,
+                    "operation_type": "CANCEL",
+                    "asofdate": context.asofdate,
+                    "version": context.version,
+                    "fo_system": context.fo_system,
+                    "leg_flag": context.leg_flag,
+                    "source_output_id": draft.source_output_id,
+                    "reason": draft.reason.strip(),
+                    "created_by": self.settings.actor,
+                    "payload": {"changes": expected_changes},
+                }
+            )
+
+        if not self.output.reference_exists(draft.idempotency_key):
+            try:
+                self.output.append([reversal])
+            except Exception as exc:
+                self.operations.set_status(operation_id, "FAILED", error_message=str(exc))
+                raise AdjustmentError(
+                    "The cancellation output write failed; the trade was not cancelled."
+                ) from exc
+        ids = [str(reversal[output_id])]
+        try:
+            self.operations.set_status(operation_id, "COMMITTED", output_ids=ids)
+        except Exception as exc:
+            raise AdjustmentError(
+                "The cancellation row exists but PostgreSQL confirmation failed. "
+                "Reconciliation is required."
+            ) from exc
+        return {"operation_id": operation_id, "status": "COMMITTED", "output_ids": ids}
+
+    def _validate_cancel_retry(self, existing, context, draft, expected_changes) -> None:
+        """Ensure a cancellation retry key still represents the same intent."""
+        expected = {
+            "operation_type": "CANCEL",
+            "source_output_id": str(draft.source_output_id),
+            "asofdate": self._context_value(context.asofdate),
+            "version": self._context_value(context.version),
+            "fo_system": str(context.fo_system),
+            "leg_flag": int(context.leg_flag),
+            "reason": draft.reason.strip(),
+        }
+        mismatches = []
+        for field, requested in expected.items():
+            if field not in existing:
+                continue
+            stored = existing.get(field)
+            if field in {"asofdate", "version"}:
+                stored = self._context_value(stored)
+            elif field == "leg_flag":
+                stored = int(stored)
+            else:
+                stored = str(stored).strip() if stored is not None else ""
+            if stored != requested:
+                mismatches.append(field)
+        if (existing.get("payload") or {}).get("changes") != expected_changes:
+            mismatches.append("field changes")
+        if mismatches:
+            raise AdjustmentError(
+                "This retry key belongs to a different cancellation intention "
+                f"({', '.join(mismatches)}). Confirm the modified cancellation again "
+                "to create a new retry key."
+            )
+
     def _validate_retry_intention(self, existing, context, draft, requested_changes) -> None:
         """Prevent one retry key from representing two different adjustments.
 
@@ -170,7 +289,6 @@ class AdjustmentService:
     def revert(self, target_operation_id: str, reason: str, idempotency_key: str) -> dict:
         """Append a reversal of the adjusted row and restore the original row."""
         existing = self.operations.find_by_key(idempotency_key)
-        deterministic_ids = [f"REV-{idempotency_key}", f"ADJ-{idempotency_key}"]
         if existing:
             existing_target = (existing.get("payload") or {}).get("reverts_operation_id")
             if existing_target != target_operation_id:
@@ -181,8 +299,14 @@ class AdjustmentService:
         target = self.operations.get_operation(target_operation_id)
         if target is None:
             raise AdjustmentError("The adjustment to revert was not found.")
-        if target["operation_type"] != "REPLACE":
-            raise AdjustmentError("Only a committed replacement can currently be reverted.")
+        if target["operation_type"] not in {"REPLACE", "CANCEL"}:
+            raise AdjustmentError("Only a committed replacement or cancellation can be reverted.")
+        is_cancel_revert = target["operation_type"] == "CANCEL"
+        deterministic_ids = (
+            [f"ADJ-{idempotency_key}"]
+            if is_cancel_revert
+            else [f"REV-{idempotency_key}", f"ADJ-{idempotency_key}"]
+        )
 
         if existing and self.output.reference_exists(idempotency_key):
             try:
@@ -201,20 +325,26 @@ class AdjustmentService:
 
         if target["status"] != "COMMITTED":
             raise AdjustmentError("This adjustment is not committed or has already been reverted.")
-        if not target.get("output_ids") or len(target["output_ids"]) < 2:
+        required_output_count = 1 if is_cancel_revert else 2
+        if not target.get("output_ids") or len(target["output_ids"]) < required_output_count:
             raise AdjustmentError("The adjustment does not contain its generated output IDs.")
-
-        active_adjusted_id = str(target["output_ids"][-1])
-        active_adjusted = self.output.get_active(active_adjusted_id)
-        if active_adjusted is None:
-            raise AdjustmentError("The adjusted row is no longer active and cannot be reverted.")
         original = self.output.get_by_id(str(target["source_output_id"]))
         if original is None:
             raise AdjustmentError("The original output row required for restoration was not found.")
-
-        reversal, restored = self._build_revert_rows(
-            original, active_adjusted, idempotency_key
-        )
+        if is_cancel_revert:
+            cancellation_id = str(target["output_ids"][-1])
+            cancellation = self.output.get_by_id(cancellation_id)
+            if cancellation is None:
+                raise AdjustmentError("The cancellation row required for revert was not found.")
+            rows = [self._build_cancel_revert_row(original, cancellation, idempotency_key)]
+            revert_source_id = cancellation_id
+        else:
+            active_adjusted_id = str(target["output_ids"][-1])
+            active_adjusted = self.output.get_active(active_adjusted_id)
+            if active_adjusted is None:
+                raise AdjustmentError("The adjusted row is no longer active and cannot be reverted.")
+            rows = list(self._build_revert_rows(original, active_adjusted, idempotency_key))
+            revert_source_id = active_adjusted_id
         if existing:
             revert_operation_id = str(existing["operation_id"])
         else:
@@ -228,7 +358,7 @@ class AdjustmentService:
                     "version": target["version"],
                     "fo_system": target["fo_system"],
                     "leg_flag": target["leg_flag"],
-                    "source_output_id": active_adjusted_id,
+                    "source_output_id": revert_source_id,
                     "reason": reason,
                     "created_by": self.settings.actor,
                     "payload": {
@@ -241,7 +371,7 @@ class AdjustmentService:
 
         if not self.output.reference_exists(idempotency_key):
             try:
-                self.output.append([reversal, restored])
+                self.output.append(rows)
             except Exception as exc:
                 self.operations.set_status(revert_operation_id, "FAILED", error_message=str(exc))
                 raise AdjustmentError("The revert output write failed; retry the same intention.") from exc
@@ -342,6 +472,22 @@ class AdjustmentService:
             calculation_steps=calculation_steps,
         )
 
+    def _build_cancel_row(self, original: dict, key: str) -> dict:
+        """Copy an active row and negate every configured additive measure."""
+        f, t = self.settings.fields, self.settings.technical_fields
+        output_id = f["output_id"]["column"]
+        source_id = str(original[output_id])
+        reversal = deepcopy(original)
+        reversal[output_id] = f"REV-{key}"
+        reversal[t["record_type"]] = self.settings.record_types["reversal"]
+        reversal[t["adjustment_reference"]] = key
+        reversal[t["source_output_id"]] = source_id
+        reversal[t["parent_output_id"]] = source_id
+        for column, value in original.items():
+            if self.settings.is_additive(column):
+                reversal[column] = -float(value or 0)
+        return reversal
+
     def _requested_changes(self, leg: int, draft) -> dict:
         """Validate semantic changes and select the leg-specific amount field.
 
@@ -387,3 +533,19 @@ class AdjustmentService:
         restored[t["source_output_id"]] = original_id
         restored[t["parent_output_id"]] = adjusted_id
         return reversal, restored
+
+    def _build_cancel_revert_row(
+        self, original: dict, cancellation: dict, key: str
+    ) -> dict:
+        """Restore a cancelled trade with one new active adjusted copy."""
+        f, t = self.settings.fields, self.settings.technical_fields
+        output_id = f["output_id"]["column"]
+        original_id = str(original[output_id])
+        cancellation_id = str(cancellation[output_id])
+        restored = deepcopy(original)
+        restored[output_id] = f"ADJ-{key}"
+        restored[t["record_type"]] = self.settings.record_types["adjusted"]
+        restored[t["adjustment_reference"]] = key
+        restored[t["source_output_id"]] = original_id
+        restored[t["parent_output_id"]] = cancellation_id
+        return restored

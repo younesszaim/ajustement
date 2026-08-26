@@ -31,6 +31,13 @@ class ServiceStub:
             raise AdjustmentError("The row is stale")
         return {"operation_id": "OP-1", "status": "COMMITTED"}
 
+    def commit_cancel(self, context, draft):
+        return {
+            "operation_id": "CANCEL-OP-1",
+            "status": "COMMITTED",
+            "output_ids": [f"REV-{draft.idempotency_key}"],
+        }
+
     def revert(self, operation_id, reason, idempotency_key):
         return {"operation_id": "REV-OP-1", "status": "COMMITTED"}
 
@@ -73,6 +80,17 @@ def test_flask_routes_keep_the_fastapi_http_contract():
     assert search.json["items"][0]["output_record_id"] == "ROW-1"
     assert client.post("/adjustments/preview", json=adjustment_json()).status_code == 200
     assert client.post("/adjustments/commit", json=adjustment_json()).json["status"] == "COMMITTED"
+    cancellation = client.post(
+        "/adjustments/cancel",
+        json={
+            "context": adjustment_json()["context"],
+            "source_output_id": "ROW-1",
+            "reason": "Cancel duplicate trade",
+            "idempotency_key": "cancel-1",
+        },
+    )
+    assert cancellation.status_code == 200
+    assert cancellation.json["output_ids"] == ["REV-cancel-1"]
     assert client.get("/adjustments").json["items"][0]["operation_id"] == "OP-1"
     revert = client.post(
         "/adjustments/OP-1/revert",

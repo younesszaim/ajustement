@@ -27,3 +27,23 @@ def draft_signature(
         "reason": reason.strip(),
     }
     return json.dumps(intention, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def cancellation_signature(*, context, source_output_id: str, reason: str) -> str:
+    """Return the identity of one cancellation confirmation.
+
+    An unchanged retry keeps its key. Editing the reason after a failed attempt
+    creates a new cancellation intention when the user confirms again.
+    """
+    intention = {
+        "operation_type": "CANCEL",
+        "context": {
+            "asofdate": str(context.asofdate),
+            "version": str(context.version),
+            "fo_system": str(context.fo_system),
+            "leg_flag": int(context.leg_flag),
+        },
+        "source_output_id": str(source_output_id),
+        "reason": reason.strip(),
+    }
+    return json.dumps(intention, sort_keys=True, separators=(",", ":"), default=str)
