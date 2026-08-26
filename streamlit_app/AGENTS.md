@@ -58,6 +58,7 @@ put SQL in routes or business row construction in UI code.
 | `app.py` | Streamlit widgets, dialogs, session state, display and polling | SQL, accounting rules, reversal construction |
 | `client.py` | Every HTTP call made by Streamlit and user-safe transport errors | Streamlit widgets or domain calculations |
 | `api.py` | Thin routes, dependency calls, HTTP status translation | SQL or duplicated service logic |
+| `flask_api.py` | Optional educational Flask adapter with the same HTTP contract | Duplicated domain/storage rules |
 | `api_models.py` | Pydantic request bodies and HTTP validation | Database models or calculations |
 | `models.py` | Framework-independent domain dataclasses | HTTP, SQL, Streamlit |
 | `service.py` | Context validation, journal building, idempotency, commit/revert workflows | Concrete SQL or UI messages/layout |
@@ -227,6 +228,9 @@ PYTHONPATH=. .venv/bin/python -m pytest streamlit_app/tests/test_service.py::tes
 
 # API
 PYTHONPATH=. .venv/bin/uvicorn streamlit_app.api:app --reload --port 8001
+
+# Optional Flask adapter for comparison (run instead of FastAPI)
+PYTHONPATH=. .venv/bin/flask --app streamlit_app.flask_api run --debug --port 8001
 
 # UI in another terminal
 PYTHONPATH=. .venv/bin/streamlit run streamlit_app/app.py

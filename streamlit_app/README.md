@@ -97,6 +97,20 @@ Run the unit tests without a database:
 PYTHONPATH=. .venv/bin/python -m pytest streamlit_app/tests -q
 ```
 
+## Optional Flask learning adapter
+
+The active UI normally uses FastAPI. An equivalent Flask HTTP adapter is also
+available for framework comparison and reuses the same services and storage:
+
+```bash
+PYTHONPATH=. .venv/bin/flask --app streamlit_app.flask_api run --debug --port 8001
+```
+
+Its URLs and JSON match FastAPI, so Streamlit can use it through the same
+`LIMON_API_URL`. Flask does not provide this project's automatic Swagger page.
+See [the Flask learning guide](../docs/flask-api-learning-guide.md) for route
+examples and a detailed comparison.
+
 ## Commit and recovery sequence
 
 1. Preview re-reads the currently active output row.
