@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Architecture et fonctionnement — LiMon Adjustment Manager</title>
+  <style>
+    :root { --green:#007a4d; --dark:#17212b; --muted:#5f6b73; --soft:#e7f3ee; --line:#d6ddd9; --paper:#fff; }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; background:#f5f7f6; color:var(--dark); font:16px/1.65 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { width:min(1120px, calc(100% - 32px)); margin:32px auto; padding:56px 72px 80px; background:var(--paper); box-shadow:0 8px 32px rgba(23,33,43,.08); border-radius:14px; }
+    h1 { margin:0 0 36px; padding-bottom:20px; color:#005b3a; font-size:2.45rem; line-height:1.18; border-bottom:4px solid var(--green); }
+    h2 { margin:48px 0 16px; color:var(--green); font-size:1.75rem; line-height:1.25; }
+    h3 { margin:30px 0 10px; color:#006b44; font-size:1.3rem; }
+    p { margin:10px 0 16px; }
+    a { color:var(--green); }
+    blockquote { margin:0 0 32px; padding:18px 22px; background:var(--soft); border-left:5px solid var(--green); border-radius:5px; }
+    ul, ol { padding-left:28px; margin:10px 0 18px; }
+    li { margin:5px 0; }
+    code { padding:2px 6px; background:#edf1ef; border-radius:4px; font:0.92em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    pre { overflow:auto; margin:18px 0 24px; padding:20px; color:#eaf6f0; background:#172b24; border-radius:8px; line-height:1.5; }
+    pre code { padding:0; color:inherit; background:none; }
+    .table-wrap { overflow-x:auto; margin:18px 0 28px; }
+    table { width:100%; border-collapse:collapse; font-size:.95rem; }
+    th { padding:12px 14px; color:#fff; background:var(--green); text-align:left; }
+    td { padding:11px 14px; border:1px solid var(--line); vertical-align:top; }
+    tbody tr:nth-child(even) { background:#f5f8f7; }
+    .mermaid { overflow:auto; margin:22px 0 30px; padding:22px; text-align:center; background:#fbfdfc; border:1px solid var(--line); border-radius:8px; }
+    @media (max-width:760px) { main { width:100%; margin:0; padding:30px 20px 60px; border-radius:0; } h1{font-size:2rem;} h2{font-size:1.45rem;} }
+    @media print { body{background:#fff;} main{width:100%; margin:0; padding:15mm; box-shadow:none;} h2,h3{break-after:avoid;} table,pre,.mermaid{break-inside:avoid;} }
+  </style>
+</head>
+<body>
+<main>
+<h1 id="architecture-et-fonctionnement-de-limon-adjustment-manager">Architecture et fonctionnement de LiMon Adjustment Manager</h1>
+<blockquote><strong>Périmètre de ce document</strong> Ce document décrit l'application active et simplifiée située dans <code>streamlit_app/</code> : interface Streamlit, API FastAPI, table de sortie Vertica et table de suivi PostgreSQL. L'ancienne application React/FastAPI présente dans <code>frontend/</code> et <code>backend/</code> est conservée comme référence, mais n'est pas décrite ici.</blockquote>
+<h2 id="1-objectif-de-l-application">1. Objectif de l'application</h2>
+<p>LiMon Adjustment Manager permet de corriger ponctuellement des données déjà produites par LiMon sans modifier ni supprimer les lignes historiques.</p>
+<p>L'utilisateur peut :</p>
+<ul>
+<li>sélectionner un contexte réglementaire précis ;</li>
+<li>rechercher une ligne active par numéro de trade ou ISIN ;</li>
+<li>modifier un montant ou un champ contrôlé ;</li>
+<li>prévisualiser les recalculs et les lignes qui seront écrites ;</li>
+<li>valider l'ajustement ;</li>
+<li>annuler l'effet d'un trade ;</li>
+<li>consulter le registre des opérations ;</li>
+<li>annuler fonctionnellement un ajustement déjà validé au moyen d'une nouvelle écriture de compensation.</li>
+</ul>
+<p>Le principe central est <strong>append-only</strong> : l'application ajoute de nouvelles lignes dans la table de sortie, mais ne met jamais à jour et ne supprime jamais une ligne existante.</p>
+<h2 id="2-vue-d-ensemble">2. Vue d'ensemble</h2>
+<div class="mermaid">flowchart LR
+    U[&quot;Utilisateur&quot;] --&gt; UI[&quot;Interface Streamlit\napp.py&quot;]
+    UI --&gt; CL[&quot;Client HTTP\nclient.py&quot;]
+    CL --&gt; API[&quot;API FastAPI\napi.py&quot;]
+    API --&gt; JOB[&quot;Gestionnaire de preview\njobs.py&quot;]
+    API --&gt; SVC[&quot;Service métier\nservice.py&quot;]
+    JOB --&gt; SVC
+    SVC --&gt; CALC[&quot;Pipeline de calcul\ncalculations.py&quot;]
+    SVC --&gt; OUT[&quot;Accès sortie\nSqlOutputStore&quot;]
+    SVC --&gt; META[&quot;Accès opérations\nPostgresOperationStore&quot;]
+    OUT --&gt; V[(&quot;Vertica\noutput_completude_table&quot;)]
+    META --&gt; P[(&quot;PostgreSQL\nadjustment_operations&quot;)]
+    CFG[&quot;Configuration YAML\n+ variables d&#x27;environnement&quot;] --&gt; UI
+    CFG --&gt; API
+    CFG --&gt; SVC
+    CFG --&gt; OUT</div>
+<p>La règle de dépendance est volontairement simple :</p>
+<pre><code class="language-text">Streamlit → client HTTP → FastAPI → service métier → calcul / stockage</code></pre>
+<p>Conséquences :</p>
+<ul>
+<li>Streamlit n'exécute aucun SQL ;</li>
+<li>Streamlit ne se connecte jamais directement à Vertica ou PostgreSQL ;</li>
+<li>les routes FastAPI ne construisent pas les lignes métier ;</li>
+<li>le service métier ne connaît ni Streamlit, ni les codes HTTP, ni le SQL concret ;</li>
+<li>seul <code>storage.py</code> contient les requêtes SQL.</li>
+</ul>
+<h2 id="3-les-deux-processus-de-l-application">3. Les deux processus de l'application</h2>
+<p>L'application fonctionne avec deux processus Python indépendants.</p>
+<h3 id="3-1-processus-fastapi">3.1 Processus FastAPI</h3>
+<pre><code class="language-bash">PYTHONPATH=. .venv/bin/uvicorn streamlit_app.api:app --reload --port 8001</code></pre>
+<p>FastAPI possède :</p>
+<ul>
+<li>les connexions aux bases ;</li>
+<li>les recherches filtrées ;</li>
+<li>les validations métier ;</li>
+<li>les calculs ;</li>
+<li>la construction des lignes de reversal et d'ajustement ;</li>
+<li>les commits, retries et reverts ;</li>
+<li>la lecture du registre.</li>
+</ul>
+<p>Swagger est disponible sur <code>http://127.0.0.1:8001/docs</code>.</p>
+<h3 id="3-2-processus-streamlit">3.2 Processus Streamlit</h3>
+<pre><code class="language-bash">PYTHONPATH=. .venv/bin/streamlit run streamlit_app/app.py</code></pre>
+<p>Streamlit possède uniquement :</p>
+<ul>
+<li>les composants visuels ;</li>
+<li>les formulaires et dialogues ;</li>
+<li>AG Grid ;</li>
+<li>l'état temporaire de la session navigateur ;</li>
+<li>l'appel des endpoints ;</li>
+<li>l'affichage des résultats et des erreurs.</li>
+</ul>
+<p>L'interface est normalement disponible sur <code>http://localhost:8501</code>.</p>
+<h2 id="4-responsabilit-de-chaque-fichier">4. Responsabilité de chaque fichier</h2>
+<div class="table-wrap"><table><thead><tr>
+<th>Fichier</th>
+<th>Responsabilité</th>
+<th>Ce qu'il ne doit pas faire</th>
+</tr></thead><tbody>
+<tr><td><code>streamlit_app/app.py</code></td><td>Widgets, mise en page, dialogues, session, AG Grid, polling</td><td>SQL, calcul ou construction des lignes</td></tr>
+<tr><td><code>streamlit_app/client.py</code></td><td>Tous les appels HTTP de Streamlit vers FastAPI</td><td>Logique métier ou composants Streamlit</td></tr>
+<tr><td><code>streamlit_app/api.py</code></td><td>Routes, validation HTTP et conversion des erreurs</td><td>SQL ou duplication des règles métier</td></tr>
+<tr><td><code>streamlit_app/api_models.py</code></td><td>Corps de requête Pydantic et validation de forme</td><td>Calculs et accès aux bases</td></tr>
+<tr><td><code>streamlit_app/models.py</code></td><td>Objets métier Python indépendants des frameworks</td><td>HTTP, SQL ou interface</td></tr>
+<tr><td><code>streamlit_app/service.py</code></td><td>Règles de preview, commit, cancel, retry et revert</td><td>SQL concret ou affichage</td></tr>
+<tr><td><code>streamlit_app/calculations.py</code></td><td>Pipeline ordonné de recalcul DataFrame</td><td>Base de données, HTTP ou Streamlit</td></tr>
+<tr><td><code>streamlit_app/jobs.py</code></td><td>Exécution temporaire du preview en arrière-plan</td><td>Historique durable des ajustements</td></tr>
+<tr><td><code>streamlit_app/storage.py</code></td><td>Requêtes SQL et transactions</td><td>Décisions métier ou erreurs HTTP</td></tr>
+<tr><td><code>streamlit_app/runtime.py</code></td><td>Construction et injection des dépendances</td><td>Règles métier</td></tr>
+<tr><td><code>streamlit_app/config.py</code></td><td>Chargement environnement/YAML et catalogue des champs</td><td>Secrets codés en dur</td></tr>
+<tr><td><code>streamlit_app/project.yaml</code></td><td>Noms physiques et options du mode Vertica réel</td><td>Identifiants de connexion</td></tr>
+<tr><td><code>streamlit_app/project.supabase.yaml</code></td><td>Noms physiques du mode simulé Supabase</td><td>Identifiants de connexion</td></tr>
+</tbody></table></div>
+<h2 id="5-le-contexte-fonctionnel-obligatoire">5. Le contexte fonctionnel obligatoire</h2>
+<p>Une ligne n'est jamais recherchée uniquement par son identifiant métier. Toutes les opérations utilisent le contexte complet :</p>
+<pre><code class="language-text">asofdate + version + fo_system + leg_flag</code></pre>
+<div class="table-wrap"><table><thead><tr>
+<th>Élément</th>
+<th>Rôle</th>
+</tr></thead><tbody>
+<tr><td><code>asofdate</code></td><td>Date d'arrêté sélectionnée dans le calendrier</td></tr>
+<tr><td><code>version</code></td><td>Version précise de la production LiMon</td></tr>
+<tr><td><code>fo_system</code></td><td>Système Front Office, par exemple Murex ou Orchestrade</td></tr>
+<tr><td><code>leg_flag</code></td><td>Contexte de jambe : <code>0</code> pour Cash, <code>1</code> pour Titre</td></tr>
+</tbody></table></div>
+<p><code>leg_flag</code> n'est pas ajustable. Il détermine le montant ajusté :</p>
+<ul>
+<li><code>leg_flag = 0</code> → <code>cash_amount_eur</code> ;</li>
+<li><code>leg_flag = 1</code> → <code>security_amount_eur</code>.</li>
+</ul>
+<p>Le commit relit la ligne active depuis la base et vérifie à nouveau ces quatre valeurs. Une ligne sélectionnée dans un ancien contexte ne peut donc pas être validée dans un nouveau contexte.</p>
+<h2 id="6-chargement-initial-et-s-lection-du-contexte">6. Chargement initial et sélection du contexte</h2>
+<div class="mermaid">sequenceDiagram
+    actor U as Utilisateur
+    participant ST as Streamlit
+    participant C as Client HTTP
+    participant A as FastAPI
+    participant S as SqlOutputStore
+    participant V as Vertica / Supabase
+
+    U-&gt;&gt;ST: Ouvre l&#x27;application
+    ST-&gt;&gt;C: asofdates()
+    C-&gt;&gt;A: GET /contexts/asofdates
+    A-&gt;&gt;S: context_values(asofdate)
+    S-&gt;&gt;V: SELECT DISTINCT date
+    V--&gt;&gt;S: Dates existantes
+    S--&gt;&gt;A: Liste
+    A--&gt;&gt;ST: JSON
+    ST--&gt;&gt;U: Calendrier
+
+    U-&gt;&gt;ST: Sélectionne une date
+    ST-&gt;&gt;A: GET /contexts/versions
+    A-&gt;&gt;V: Versions de cette date
+    V--&gt;&gt;ST: Liste via l&#x27;API
+
+    U-&gt;&gt;ST: Sélectionne une version
+    ST-&gt;&gt;A: GET /contexts/fo-systems
+    A-&gt;&gt;V: FO systems du contexte
+    V--&gt;&gt;ST: Liste via l&#x27;API</div>
+<p>Les listes ne sont pas codées en dur. Une base vide produit une interface vide, et non des exemples locaux.</p>
+<h2 id="7-recherche-d-un-trade-et-notion-de-ligne-active">7. Recherche d'un trade et notion de ligne active</h2>
+<h3 id="7-1-recherche-serveur">7.1 Recherche serveur</h3>
+<p>L'utilisateur saisit un numéro de trade ou un ISIN. Streamlit appelle :</p>
+<pre><code class="language-http">GET /trades?asofdate=...&amp;version=...&amp;fo_system=...&amp;leg_flag=...&amp;search=...&amp;limit=...</code></pre>
+<p>La base applique :</p>
+<ol>
+<li>le contexte complet ;</li>
+<li>le filtre trade/ISIN ;</li>
+<li>la règle de ligne active ;</li>
+<li>une limite de résultats.</li>
+</ol>
+<p>AG Grid reçoit uniquement ce sous-ensemble. Ses filtres sont locaux et ne remplacent pas le filtrage serveur. L'application ne charge donc jamais une extraction Vertica complète dans le navigateur.</p>
+<h3 id="7-2-d-finition-d-une-ligne-active">7.2 Définition d'une ligne active</h3>
+<p>Une ligne <code>BASE</code> ou <code>ADJUSTED</code> est active si aucune ligne <code>REVERSAL</code> ne pointe vers son identifiant avec <code>parent_output_record_id</code>.</p>
+<pre><code class="language-text">BASE-001                          active
+└── REV-K1 parent=BASE-001       neutralise BASE-001
+└── ADJ-K1 parent=BASE-001       devient active
+    └── REV-K2 parent=ADJ-K1     neutralise ADJ-K1
+    └── ADJ-K2 parent=ADJ-K1     devient active</code></pre>
+<p>Cette règle permet plusieurs ajustements successifs sans colonne <code>is_active</code> mutable.</p>
+<h2 id="8-tat-temporaire-dans-streamlit">8. État temporaire dans Streamlit</h2>
+<p>Streamlit réexécute <code>app.py</code> de haut en bas à chaque interaction. Les informations temporaires sont donc stockées dans <code>st.session_state</code>.</p>
+<div class="table-wrap"><table><thead><tr>
+<th>Clé</th>
+<th>Contenu</th>
+</tr></thead><tbody>
+<tr><td><code>context_signature</code></td><td>Contexte actuellement sélectionné</td></tr>
+<tr><td><code>search_text</code></td><td>Texte de recherche</td></tr>
+<tr><td><code>search_results</code></td><td>Résultats renvoyés par FastAPI</td></tr>
+<tr><td><code>selected_row</code></td><td>Ligne sélectionnée dans AG Grid</td></tr>
+<tr><td><code>draft_key</code></td><td>Clé d'idempotence de l'intention courante</td></tr>
+<tr><td><code>draft_signature</code></td><td>Signature de tous les champs de l'intention</td></tr>
+<tr><td><code>preview</code></td><td>Original, reversal, adjusted et étapes calculées</td></tr>
+<tr><td><code>preview_draft</code></td><td>Brouillon exact utilisé pour le dernier preview</td></tr>
+</tbody></table></div>
+<p>Un changement de contexte efface recherche, sélection et preview. Une modification après preview oblige l'utilisateur à relancer le preview avant le commit.</p>
+<p>Le formulaire d'ajustement regroupe les modifications. La saisie d'un champ ne relance pas toute la logique métier ; elle est soumise lorsque l'utilisateur clique sur Preview.</p>
+<h2 id="9-construction-d-un-ajustement-standard">9. Construction d'un ajustement standard</h2>
+<p>Prenons une ligne active dont le montant est <code>100</code> et une demande de correction à <code>140</code>.</p>
+<pre><code class="language-text">Original : BASE-001  montant =  100
+Reversal : REV-K1    montant = -100
+Adjusted : ADJ-K1    montant =  140
+Effet net après ajustement = 100 - 100 + 140 = 140</code></pre>
+<p>Le service <code>AdjustmentService._build_rows()</code> :</p>
+<ol>
+<li>copie la ligne complète retournée par <code>SELECT o.*</code> ;</li>
+<li>construit une ligne <code>REVERSAL</code> ;</li>
+<li>négative toutes les colonnes additives configurées ;</li>
+<li>construit une ligne <code>ADJUSTED</code> ;</li>
+<li>applique les modifications demandées ;</li>
+<li>exécute les étapes de recalcul nécessaires ;</li>
+<li>retourne <code>original</code>, <code>reversal</code> et <code>adjusted</code>.</li>
+</ol>
+<p>Les colonnes métier non affichées dans l'interface sont conservées car le service travaille avec la ligne complète.</p>
+<h2 id="10-preview-et-calcul-en-arri-re-plan">10. Preview et calcul en arrière-plan</h2>
+<h3 id="10-1-s-quence">10.1 Séquence</h3>
+<div class="mermaid">sequenceDiagram
+    actor U as Utilisateur
+    participant ST as Streamlit
+    participant A as FastAPI
+    participant J as PreviewJobManager
+    participant S as AdjustmentService
+    participant O as OutputStore
+    participant C as CalculationPipeline
+
+    U-&gt;&gt;ST: Clique sur Preview
+    ST-&gt;&gt;A: POST /adjustments/preview-jobs
+    A-&gt;&gt;J: Crée le job
+    A--&gt;&gt;ST: 202 + job_id
+    J-&gt;&gt;S: preview(context, draft)
+    S-&gt;&gt;O: get_active(source_output_id)
+    O--&gt;&gt;S: Ligne active complète
+    S-&gt;&gt;S: Valide contexte et valeurs
+    S-&gt;&gt;C: Recalcule la copie adjusted
+
+    loop Polling environ toutes les 500 ms
+        ST-&gt;&gt;A: GET /adjustments/preview-jobs/{job_id}
+        A--&gt;&gt;ST: statut, étape, progression
+        ST--&gt;&gt;U: Barre et étape courante
+    end
+
+    C--&gt;&gt;S: Ligne recalculée + étapes
+    S--&gt;&gt;J: Preview final
+    J--&gt;&gt;ST: COMPLETED + résultat
+    ST--&gt;&gt;U: Original / Reversal / Adjusted</div>
+<p>Le preview ne réalise aucune écriture durable.</p>
+<h3 id="10-2-pipeline-de-calcul">10.2 Pipeline de calcul</h3>
+<p>L'ordre est déclaré explicitement dans <code>CalculationPipeline</code> :</p>
+<pre><code class="language-text">exposure_class
+→ reportline_code
+→ maturity_date
+→ calculate_buckets
+→ calculate_ldp_impacts</code></pre>
+<p>Le pipeline commence à l'étape la plus ancienne affectée par les changements :</p>
+<div class="table-wrap"><table><thead><tr>
+<th>Changement utilisateur</th>
+<th>Première étape nécessaire</th>
+</tr></thead><tbody>
+<tr><td>Montant Cash/Titre</td><td><code>calculate_buckets</code></td></tr>
+<tr><td>Exposure class</td><td>Étapes situées après la production d'exposure class</td></tr>
+<tr><td>Reporting line</td><td>Étapes situées après la production de reporting line</td></tr>
+<tr><td>Maturity date</td><td>Étapes situées après la production de maturity date</td></tr>
+</tbody></table></div>
+<p>Une valeur choisie manuellement est réappliquée après chaque étape aval. Une fonction de calcul ne peut donc pas remplacer silencieusement le choix explicite de l'utilisateur.</p>
+<p>Chaque fonction reçoit et retourne un DataFrame complet et doit conserver le nombre de lignes. Les fonctions actuelles servent de démonstration ; elles doivent être remplacées ou validées contre les fonctions LiMon réelles avant production.</p>
+<h3 id="10-3-limite-du-gestionnaire-de-jobs">10.3 Limite du gestionnaire de jobs</h3>
+<p><code>PreviewJobManager</code> conserve la progression en mémoire dans le processus FastAPI. Cela convient au prototype à un seul processus.</p>
+<p>Il ne faut pas démarrer plusieurs workers Uvicorn avec cette implémentation : un polling peut arriver sur un worker qui ne connaît pas le job. Pour une version multi-utilisateur, il faudra un stockage de jobs partagé, par exemple Redis, PostgreSQL ou une file de tâches.</p>
+<h2 id="11-commit-d-un-ajustement">11. Commit d'un ajustement</h2>
+<h3 id="11-1-s-quence-normale">11.1 Séquence normale</h3>
+<div class="mermaid">sequenceDiagram
+    actor U as Utilisateur
+    participant ST as Streamlit
+    participant A as FastAPI
+    participant S as AdjustmentService
+    participant P as PostgreSQL
+    participant V as Vertica
+
+    U-&gt;&gt;ST: Clique sur Commit
+    ST-&gt;&gt;A: POST /adjustments/commit
+    A-&gt;&gt;S: commit(context, draft)
+    S-&gt;&gt;P: Recherche idempotency_key
+    P--&gt;&gt;S: Absente
+    S-&gt;&gt;V: Relit la ligne active
+    V--&gt;&gt;S: Ligne active courante
+    S-&gt;&gt;S: Reconstruit le même preview
+    S-&gt;&gt;P: INSERT opération PENDING
+    S-&gt;&gt;V: Vérifie adjustment_reference
+    V--&gt;&gt;S: Absente
+    S-&gt;&gt;V: INSERT REVERSAL + ADJUSTED
+    V--&gt;&gt;S: Transaction sortie commitée
+    S-&gt;&gt;P: Statut COMMITTED + output_ids
+    S--&gt;&gt;A: Résultat
+    A--&gt;&gt;ST: Succès
+    ST--&gt;&gt;U: Confirmation et registre actualisé</div>
+<p>Le commit ne fait pas confiance à la ligne envoyée par l'interface. Il relit la source active et appelle la même logique que le preview. Cette propriété garantit la parité Preview/Commit.</p>
+<h3 id="11-2-cl-d-idempotence">11.2 Clé d'idempotence</h3>
+<p>Une intention exacte possède une clé stable. Les IDs produits sont déterministes :</p>
+<pre><code class="language-text">REV-{idempotency_key}
+ADJ-{idempotency_key}</code></pre>
+<p>L'intention comprend notamment :</p>
+<ul>
+<li>contexte complet ;</li>
+<li>identifiant source ;</li>
+<li>nouveau montant ;</li>
+<li>champs modifiés ;</li>
+<li>motif normalisé.</li>
+</ul>
+<p>Un retry strictement identique réutilise la même clé. Une modification de l'un de ces éléments doit produire une nouvelle intention après un nouveau preview.</p>
+<h2 id="12-pourquoi-deux-bases-et-une-seule-table-de-m-tadonn-es">12. Pourquoi deux bases et une seule table de métadonnées ?</h2>
+<h3 id="12-1-vertica-r-sultat-m-tier">12.1 Vertica : résultat métier</h3>
+<p>La table de sortie reste la source consommée par Power BI. Elle contient :</p>
+<ul>
+<li>les lignes <code>BASE</code> ;</li>
+<li>les lignes <code>REVERSAL</code> ;</li>
+<li>les lignes <code>ADJUSTED</code> ;</li>
+<li>toutes les colonnes métier ;</li>
+<li>quelques colonnes techniques de lignée.</li>
+</ul>
+<p>Les quatre notions techniques minimales sont :</p>
+<div class="table-wrap"><table><thead><tr>
+<th>Colonne sémantique</th>
+<th>Signification</th>
+</tr></thead><tbody>
+<tr><td><code>record_type</code></td><td><code>BASE</code>, <code>REVERSAL</code> ou <code>ADJUSTED</code></td></tr>
+<tr><td><code>adjustment_reference</code></td><td>Référence stable de l'opération ayant généré la ligne</td></tr>
+<tr><td><code>source_output_record_id</code></td><td>Identifiant de la source métier originale de la chaîne</td></tr>
+<tr><td><code>parent_output_record_id</code></td><td>Ligne active directement neutralisée/remplacée</td></tr>
+</tbody></table></div>
+<h3 id="12-2-postgresql-intention-et-audit">12.2 PostgreSQL : intention et audit</h3>
+<p><code>adjustment_simple.adjustment_operations</code> est l'unique table de métadonnées. Elle conserve :</p>
+<ul>
+<li>l'identifiant de l'opération ;</li>
+<li>la clé d'idempotence ;</li>
+<li>le type <code>REPLACE</code>, <code>CANCEL</code> ou <code>REVERT</code> ;</li>
+<li>le statut ;</li>
+<li>le contexte ;</li>
+<li>la ligne source ;</li>
+<li>le motif et l'auteur configuré ;</li>
+<li>les changements en JSON ;</li>
+<li>les IDs écrits dans la sortie ;</li>
+<li>les erreurs ;</li>
+<li>la relation vers l'opération annulée.</li>
+</ul>
+<p>La table PostgreSQL explique <strong>l'intention utilisateur et son cycle de vie</strong>. La table Vertica contient <strong>l'effet métier effectivement consommé par les reportings</strong>.</p>
+<h2 id="13-statuts-d-une-op-ration">13. Statuts d'une opération</h2>
+<div class="table-wrap"><table><thead><tr>
+<th>Statut</th>
+<th>Signification</th>
+</tr></thead><tbody>
+<tr><td><code>PENDING</code></td><td>Intention réservée dans PostgreSQL, écriture sortie pas encore confirmée</td></tr>
+<tr><td><code>COMMITTED</code></td><td>Écriture sortie présente et métadonnées confirmées</td></tr>
+<tr><td><code>FAILED</code></td><td>L'écriture dans la sortie a échoué</td></tr>
+<tr><td><code>RECONCILIATION_REQUIRED</code></td><td>Sortie probablement écrite, mais confirmation PostgreSQL incomplète</td></tr>
+<tr><td><code>REVERTED</code></td><td>L'opération a été compensée par une nouvelle opération de revert</td></tr>
+</tbody></table></div>
+<p>Vertica et PostgreSQL ne partagent pas une transaction ACID. Une panne peut survenir après l'écriture Vertica mais avant la confirmation PostgreSQL. La clé stable et <code>adjustment_reference</code> permettent alors de détecter que les lignes existent déjà et de terminer uniquement la réconciliation, sans doublon.</p>
+<div class="mermaid">flowchart TD
+    A[&quot;Réception du commit&quot;] --&gt; B{&quot;Clé déjà connue ?&quot;}
+    B -- Non --&gt; C[&quot;Créer PENDING&quot;]
+    B -- Oui --&gt; D[&quot;Comparer l&#x27;intention stockée&quot;]
+    D -- Différente --&gt; X[&quot;HTTP 409 : nouvelle intention requise&quot;]
+    D -- Identique --&gt; E{&quot;Référence présente dans la sortie ?&quot;}
+    C --&gt; E
+    E -- Oui --&gt; F[&quot;Confirmer PostgreSQL uniquement&quot;]
+    E -- Non --&gt; G[&quot;Écrire la ou les lignes dans la sortie&quot;]
+    G -- Échec --&gt; H[&quot;Passer l&#x27;opération à FAILED&quot;]
+    G -- Succès --&gt; I[&quot;Passer à COMMITTED&quot;]
+    F --&gt; I</div>
+<h2 id="14-annulation-d-un-trade">14. Annulation d'un trade</h2>
+<p>L'annulation fonctionnelle ne crée pas de ligne ajustée. Elle ajoute uniquement une reversal de la ligne active.</p>
+<pre><code class="language-text">BASE-001 montant =  100
+REV-KC   montant = -100
+Effet net = 0</code></pre>
+<p>Le dialogue :</p>
+<ol>
+<li>rappelle la ligne sélectionnée ;</li>
+<li>explique qu'aucun remplacement ne sera créé ;</li>
+<li>exige un motif ;</li>
+<li>exige une confirmation explicite ;</li>
+<li>appelle <code>POST /adjustments/cancel</code>.</li>
+</ol>
+<p>La ligne disparaît de la recherche active, mais tout son historique reste dans Vertica et l'opération <code>CANCEL</code> reste dans PostgreSQL.</p>
+<h2 id="15-revert-d-une-op-ration">15. Revert d'une opération</h2>
+<p>Un revert n'est jamais une suppression. Il produit une nouvelle opération auditable.</p>
+<h3 id="15-1-revert-d-un-replace">15.1 Revert d'un REPLACE</h3>
+<p>Le système neutralise la ligne ajustée active et restaure les valeurs précédentes :</p>
+<pre><code class="language-text">BASE-001
+├── REV-K1      neutralise BASE-001
+└── ADJ-K1      actif après le REPLACE
+    ├── REV-K2  neutralise ADJ-K1
+    └── ADJ-K2  restaure les valeurs précédentes et devient actif</code></pre>
+<h3 id="15-2-revert-d-un-cancel">15.2 Revert d'un CANCEL</h3>
+<p>Puisque le CANCEL avait créé uniquement une reversal, son revert ajoute uniquement une nouvelle ligne <code>ADJUSTED</code> restaurée.</p>
+<p>PostgreSQL crée une opération <code>REVERT</code> avec <code>reverts_operation_id</code> pointant vers l'opération d'origine, puis marque l'opération cible <code>REVERTED</code>.</p>
+<h2 id="16-registre-des-ajustements">16. Registre des ajustements</h2>
+<p>Le registre appelle :</p>
+<pre><code class="language-http">GET /adjustments?limit=1000</code></pre>
+<p>Les données viennent uniquement de PostgreSQL. L'interface les groupe par :</p>
+<pre><code class="language-text">asofdate → version → opérations</code></pre>
+<p>Chaque opération affiche son type, statut, auteur, date, contexte, motif et résumé des changements. Le bouton <strong>Review</strong> ouvre le détail. Le bouton <strong>Revert</strong> est proposé seulement lorsqu'une opération <code>REPLACE</code> ou <code>CANCEL</code> est encore <code>COMMITTED</code>.</p>
+<p>Si les lignes existent dans Vertica mais que le registre est vide, PostgreSQL n'a pas été confirmé ou l'application ne pointe pas vers la même table de métadonnées. Vertica seul ne permet pas de reconstruire tous les motifs et statuts utilisateur.</p>
+<h2 id="17-catalogue-s-mantique-des-champs">17. Catalogue sémantique des champs</h2>
+<p>Le code Python utilise des noms stables comme :</p>
+<pre><code class="language-text">isin
+cash_amount_eur
+security_amount_eur
+exposure_class
+reporting_line_lcr</code></pre>
+<p>Le YAML les traduit vers les colonnes physiques de chaque environnement :</p>
+<pre><code class="language-yaml">fields:
+  isin:
+    column: isin_code
+    label: ISIN
+  security_amount_eur:
+    column: SecurityAmount_EUR
+    label: Security amount EUR
+    additive: true</code></pre>
+<p>Ainsi, une colonne peut s'appeler <code>isin_code</code> dans Vertica et <code>isin</code> dans la simulation sans changer toute la base de code.</p>
+<p>Le YAML définit également :</p>
+<ul>
+<li>les champs affichés ;</li>
+<li>les champs ajustables ;</li>
+<li>leurs listes de valeurs autorisées ;</li>
+<li>les types de record physiques ;</li>
+<li>les colonnes additives à négativer ;</li>
+<li>la fonction de recalcul configurée.</li>
+</ul>
+<p>Le backend valide les valeurs contrôlées même si l'interface propose déjà une liste déroulante. Une requête Swagger ne peut donc pas contourner la règle.</p>
+<h2 id="18-configuration-supabase-et-vertica-r-el">18. Configuration Supabase et Vertica réel</h2>
+<h3 id="18-1-mode-supabase">18.1 Mode Supabase</h3>
+<p>Supabase héberge physiquement les deux schémas PostgreSQL :</p>
+<pre><code class="language-text">vertica_sim.output_completude_table
+adjustment_simple.adjustment_operations</code></pre>
+<p>Le premier simule Vertica ; le second représente déjà la future table PostgreSQL de métadonnées. Malgré une connexion physique unique, le code conserve deux interfaces logiques séparées.</p>
+<h3 id="18-2-mode-r-el">18.2 Mode réel</h3>
+<p>En production :</p>
+<pre><code class="language-text">SqlOutputStore → Vertica → vraie table output_completude
+PostgresOperationStore → PostgreSQL → adjustment_operations</code></pre>
+<p><code>runtime.py</code> sélectionne les factories de connexion selon les variables d'environnement. Le service métier reste inchangé.</p>
+<h2 id="19-endpoints-et-couches-concern-es">19. Endpoints et couches concernées</h2>
+<div class="table-wrap"><table><thead><tr>
+<th>Méthode</th>
+<th>Endpoint</th>
+<th>Rôle</th>
+<th>Lecture/écriture</th>
+</tr></thead><tbody>
+<tr><td>GET</td><td><code>/health</code></td><td>Vérifier la configuration active</td><td>Aucune table métier</td></tr>
+<tr><td>GET</td><td><code>/contexts/asofdates</code></td><td>Charger les dates</td><td>Lecture sortie</td></tr>
+<tr><td>GET</td><td><code>/contexts/versions</code></td><td>Charger les versions d'une date</td><td>Lecture sortie</td></tr>
+<tr><td>GET</td><td><code>/contexts/fo-systems</code></td><td>Charger les FO systems du contexte</td><td>Lecture sortie</td></tr>
+<tr><td>GET</td><td><code>/trades</code></td><td>Rechercher les lignes actives</td><td>Lecture sortie</td></tr>
+<tr><td>POST</td><td><code>/adjustments/preview</code></td><td>Preview synchrone pour Swagger/tests</td><td>Lecture sortie</td></tr>
+<tr><td>POST</td><td><code>/adjustments/preview-jobs</code></td><td>Démarrer un preview avec progression</td><td>Lecture sortie + mémoire</td></tr>
+<tr><td>GET</td><td><code>/adjustments/preview-jobs/{job_id}</code></td><td>Lire la progression</td><td>Mémoire FastAPI</td></tr>
+<tr><td>POST</td><td><code>/adjustments/commit</code></td><td>Valider un remplacement</td><td>Sortie + PostgreSQL</td></tr>
+<tr><td>POST</td><td><code>/adjustments/cancel</code></td><td>Annuler un trade</td><td>Sortie + PostgreSQL</td></tr>
+<tr><td>GET</td><td><code>/adjustments</code></td><td>Lire le registre</td><td>PostgreSQL</td></tr>
+<tr><td>POST</td><td><code>/adjustments/{operation_id}/revert</code></td><td>Compenser une opération</td><td>Sortie + PostgreSQL</td></tr>
+</tbody></table></div>
+<h2 id="20-gestion-des-erreurs">20. Gestion des erreurs</h2>
+<div class="table-wrap"><table><thead><tr>
+<th>Code / état</th>
+<th>Cause typique</th>
+<th>Comportement attendu</th>
+</tr></thead><tbody>
+<tr><td>HTTP 422</td><td>Corps invalide, contexte incomplet, mauvais type</td><td>Corriger la requête</td></tr>
+<tr><td>HTTP 404</td><td>Job de preview inconnu</td><td>Relancer le preview</td></tr>
+<tr><td>HTTP 409</td><td>Ligne inactive, contexte périmé ou clé réutilisée avec une autre intention</td><td>Rafraîchir ou créer une nouvelle intention</td></tr>
+<tr><td>HTTP 503</td><td>Base ou configuration indisponible</td><td>Restaurer la connexion/configuration</td></tr>
+<tr><td><code>FAILED</code></td><td>Insert dans la sortie échoué</td><td>Corriger la cause et retenter exactement la même intention</td></tr>
+<tr><td><code>RECONCILIATION_REQUIRED</code></td><td>Sortie écrite mais PostgreSQL non confirmé</td><td>Réconcilier sans réinsérer dans Vertica</td></tr>
+</tbody></table></div>
+<p><code>client.py</code> transforme les erreurs réseau et HTTP en <code>ApiError</code>. <code>app.py</code> les affiche à l'utilisateur ; une erreur ne doit jamais être présentée comme une liste vide.</p>
+<h2 id="21-invariants-pr-server-lors-d-une-volution">21. Invariants à préserver lors d'une évolution</h2>
+<p>Toute modification doit préserver ces règles :</p>
+<ol>
+<li>le contexte complet est obligatoire pour toute lecture et écriture ;</li>
+<li>la table de sortie est append-only ;</li>
+<li>un remplacement écrit une reversal et une adjusted ;</li>
+<li>une annulation écrit uniquement une reversal ;</li>
+<li>un revert est une nouvelle écriture auditée ;</li>
+<li>preview et commit partagent le même constructeur de lignes ;</li>
+<li>le commit relit toujours la ligne active ;</li>
+<li>un retry exact conserve la même clé ;</li>
+<li>les IDs générés sont déterministes ;</li>
+<li>toutes les colonnes additives configurées sont négativées ;</li>
+<li>les noms physiques restent dans le YAML ;</li>
+<li>l'interface ne communique jamais directement avec les bases.</li>
+</ol>
+<h2 id="22-limites-actuelles">22. Limites actuelles</h2>
+<ul>
+<li>Le gestionnaire de preview est en mémoire et mono-processus.</li>
+<li>L'application ne contient actuellement ni authentification ni autorisation.</li>
+<li>L'auteur d'audit provient de <code>AUDIT_ACTOR</code> configuré.</li>
+<li>Les fonctions de calcul sont une démonstration à valider/remplacer.</li>
+<li>Le comportement concurrent multi-utilisateur n'est pas encore qualifié.</li>
+<li>Le batch multi-trade et la création de proxy ne font pas partie de cette version simplifiée.</li>
+<li>Vertica et PostgreSQL ne peuvent pas partager une transaction globale.</li>
+</ul>
+<h2 id="23-parcours-conseill-pour-comprendre-le-code">23. Parcours conseillé pour comprendre le code</h2>
+<p>Pour un nouveau développeur, l'ordre de lecture recommandé est :</p>
+<ol>
+<li><code>streamlit_app/project.supabase.yaml</code> pour comprendre les champs ;</li>
+<li><code>streamlit_app/models.py</code> et <code>api_models.py</code> pour comprendre les contrats ;</li>
+<li><code>streamlit_app/service.py</code> pour comprendre les règles métier ;</li>
+<li><code>streamlit_app/calculations.py</code> pour comprendre le recalcul ;</li>
+<li><code>streamlit_app/storage.py</code> pour comprendre le SQL ;</li>
+<li><code>streamlit_app/api.py</code> pour comprendre l'exposition HTTP ;</li>
+<li><code>streamlit_app/client.py</code> pour comprendre les appels UI ;</li>
+<li><code>streamlit_app/app.py</code> pour comprendre l'orchestration Streamlit ;</li>
+<li><code>streamlit_app/tests/</code> pour lire les scénarios exécutables.</li>
+</ol>
+<h2 id="24-lancement-et-v-rification">24. Lancement et vérification</h2>
+<p>Terminal 1 — API :</p>
+<pre><code class="language-bash">PYTHONPATH=. .venv/bin/uvicorn streamlit_app.api:app --reload --port 8001</code></pre>
+<p>Terminal 2 — interface :</p>
+<pre><code class="language-bash">PYTHONPATH=. .venv/bin/streamlit run streamlit_app/app.py</code></pre>
+<p>Tests unitaires de la version active :</p>
+<pre><code class="language-bash">PYTHONPATH=. .venv/bin/python -m pytest streamlit_app/tests -q</code></pre>
+<h2 id="25-r-sum-de-la-communication">25. Résumé de la communication</h2>
+<pre><code class="language-text">Utilisateur
+  ↓ interaction
+Streamlit app.py
+  ↓ méthode du client
+AdjustmentApiClient client.py
+  ↓ HTTP/JSON
+FastAPI api.py + api_models.py
+  ↓ appel Python
+AdjustmentService service.py
+  ├─→ CalculationPipeline calculations.py
+  ├─→ SqlOutputStore storage.py ─→ Vertica
+  └─→ PostgresOperationStore storage.py ─→ PostgreSQL</code></pre>
+<p>La simplicité recherchée repose moins sur le nombre de fichiers que sur la séparation nette des responsabilités. Chaque couche a une seule raison de changer : présentation, transport, règle métier, calcul, ou persistance.</p>
+</main>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({ startOnLoad: true, theme: 'neutral', securityLevel: 'strict' });
+</script>
+</body>
+</html>
