@@ -21,9 +21,12 @@ class AdjustmentApiClient:
 
     def _request(self, method: str, path: str, **kwargs):
         """Send one request and expose a clean message instead of HTTPX errors."""
+        # Most reads should fail quickly, while a durable commit may legitimately
+        # spend longer revalidating, recalculating and writing both data stores.
+        request_timeout = kwargs.pop("timeout", self.timeout)
         try:
             response = httpx.request(
-                method, f"{self.base_url}{path}", timeout=self.timeout, **kwargs
+                method, f"{self.base_url}{path}", timeout=request_timeout, **kwargs
             )
             response.raise_for_status()
             return response.json()
@@ -93,7 +96,10 @@ class AdjustmentApiClient:
     def commit(self, context, draft):
         """Persist a previously reviewable adjustment intention."""
         return self._request(
-            "POST", "/adjustments/commit", json=self.adjustment_body(context, draft)
+            "POST",
+            "/adjustments/commit",
+            json=self.adjustment_body(context, draft),
+            timeout=max(self.timeout, 120.0),
         )
 
     def cancel(self, context, source_output_id: str, reason: str, idempotency_key: str):

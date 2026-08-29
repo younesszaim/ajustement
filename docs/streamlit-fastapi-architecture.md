@@ -554,6 +554,12 @@ sequenceDiagram
 
 Preview does not write either database.
 
+Before starting the API job, Streamlit stores the validated draft as a pending
+preview, sets `preview_in_progress`, and performs one rerun. The rerun renders
+the Preview button disabled before polling begins and consumes the pending
+draft exactly once. A `finally` block always releases the lock after success,
+failure or timeout, preventing a double click from starting two pipelines.
+
 For local demonstrations, set `SIMULATED_CALCULATION_DELAY_SECONDS=1.5` in
 `.env.streamlit`. The pipeline pauses after announcing each running stage, so a
 developer can observe the UI. Keep it at `0` in production. A calculation error
@@ -572,6 +578,8 @@ sequenceDiagram
     participant Output as Vertica/Supabase output
 
     User->>UI: Click Commit adjustment
+    UI-->>User: Review and confirmation dialog
+    User->>UI: Confirm reviewed intention
     UI->>API: POST /adjustments/commit with same idempotency key
     API->>Service: commit(context, draft)
     Service->>Meta: find_by_key(idempotency key)
@@ -592,6 +600,14 @@ sequenceDiagram
     UI-->>User: Success message
     UI->>UI: Clear stale search, selection and preview
 ```
+
+The confirmation dialog repeats the context, source, reason, current row and
+expected adjusted result. During the synchronous HTTP request, it displays an
+activity status and disables its actions. This prevents accidental duplicate
+submission or draft changes while the commit is in flight. The indicator does
+not claim server-side stage progress because the commit endpoint does not
+currently publish intermediate stages. The HTTP client gives this durable call
+a 120-second timeout while ordinary requests retain the 30-second default.
 
 ### 6.5 Retry and partial-failure recovery
 

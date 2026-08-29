@@ -256,6 +256,7 @@ Effet net après ajustement = 100 - 100 + 140 = 140</code></pre>
     J--&gt;&gt;ST: COMPLETED + résultat
     ST--&gt;&gt;U: Original / Reversal / Adjusted</div>
 <p>Le preview ne réalise aucune écriture durable.</p>
+<p>Lorsqu'un preview valide est soumis, Streamlit enregistre d'abord le brouillon comme <code>pending_preview_draft</code>, active <code>preview_in_progress</code>, puis déclenche un rerun. Le bouton <strong>Preview adjustment</strong> est ainsi rendu désactivé avant le démarrage du polling. Le brouillon pending est consommé une seule fois et le verrou est toujours libéré à la fin, y compris après une erreur ou un timeout. Un double clic ne peut donc pas démarrer deux pipelines simultanés.</p>
 <h3 id="10-2-pipeline-de-calcul">10.2 Pipeline de calcul</h3>
 <p>L'ordre est déclaré explicitement dans <code>CalculationPipeline</code> :</p>
 <pre><code class="language-text">exposure_class
@@ -289,6 +290,8 @@ Effet net après ajustement = 100 - 100 + 140 = 140</code></pre>
     participant V as Vertica
 
     U-&gt;&gt;ST: Clique sur Commit
+    ST--&gt;&gt;U: Dialogue de revue et confirmation
+    U-&gt;&gt;ST: Confirme explicitement
     ST-&gt;&gt;A: POST /adjustments/commit
     A-&gt;&gt;S: commit(context, draft)
     S-&gt;&gt;P: Recherche idempotency_key
@@ -305,7 +308,8 @@ Effet net après ajustement = 100 - 100 + 140 = 140</code></pre>
     S--&gt;&gt;A: Résultat
     A--&gt;&gt;ST: Succès
     ST--&gt;&gt;U: Confirmation et registre actualisé</div>
-<p>Le commit ne fait pas confiance à la ligne envoyée par l'interface. Il relit la source active et appelle la même logique que le preview. Cette propriété garantit la parité Preview/Commit.</p>
+<p>Avant l'appel API, une boîte de dialogue rappelle le contexte, la source, le motif, la ligne active et le résultat attendu. L'utilisateur doit confirmer explicitement. Pendant l'appel synchrone, Streamlit affiche un statut de progression et désactive les actions du dialogue afin d'éviter un double clic ou une perturbation du brouillon.</p>
+<p>Le commit ne fait pas confiance à la ligne envoyée par l'interface. Il relit la source active et appelle la même logique que le preview. Cette propriété garantit la parité Preview/Commit. L'indicateur de l'interface signale que le traitement est en cours, mais n'affiche pas de fausses étapes serveur : l'endpoint de commit ne publie actuellement pas de progression détaillée. Le client autorise jusqu'à 120 secondes pour cet appel durable, contre 30 secondes par défaut pour les appels ordinaires.</p>
 <h3 id="11-2-cl-d-idempotence">11.2 Clé d'idempotence</h3>
 <p>Une intention exacte possède une clé stable. Les IDs produits sont déterministes :</p>
 <pre><code class="language-text">REV-{idempotency_key}

@@ -41,7 +41,15 @@ def build_services():
 
 def reset_draft() -> None:
     """Forget state that becomes invalid when context or selection changes."""
-    for key in ("selected_row", "preview", "preview_draft", "draft_key", "draft_signature"):
+    for key in (
+        "selected_row",
+        "preview",
+        "preview_draft",
+        "draft_key",
+        "draft_signature",
+        "preview_in_progress",
+        "pending_preview_draft",
+    ):
         st.session_state.pop(key, None)
 
 
@@ -135,6 +143,89 @@ def run_preview_with_progress(api, context, draft):
             status.update(label="Preview could not start", state="error", expanded=True)
             st.error(str(exc))
             return None
+
+
+@st.dialog("Confirm adjustment commit", width="large")
+def commit_adjustment_dialog(context, draft, preview: dict, settings, api):
+    """Require confirmation and keep the UI blocked during a durable commit.
+
+    The commit endpoint is synchronous and does not expose intermediate server
+    stages. The status component is therefore an activity indicator, not a
+    claim that a particular database step has completed. While the HTTP call is
+    running, this Streamlit execution cannot submit another UI action.
+    """
+    st.warning(
+        "This action writes audited REVERSAL and ADJUSTED rows. Existing output "
+        "history will not be updated or deleted."
+    )
+    first, second, third = st.columns(3)
+    first.metric("As-of date", str(context.asofdate))
+    second.metric("Version", str(context.version))
+    third.metric("FO system", str(context.fo_system))
+    st.caption(
+        f"Source row: {draft.source_output_id} · "
+        f"Leg: {'Cash' if context.leg_flag == 0 else 'Titre'} · "
+        f"Reason: {draft.reason}"
+    )
+
+    original_tab, adjusted_tab = st.tabs(["Current active row", "Result after commit"])
+    with original_tab:
+        st.dataframe(
+            display_row(preview["original"], settings),
+            hide_index=True,
+            use_container_width=True,
+        )
+    with adjusted_tab:
+        st.dataframe(
+            display_row(preview["adjusted"], settings),
+            hide_index=True,
+            use_container_width=True,
+        )
+
+    confirmed = st.checkbox(
+        "I confirm that I reviewed the preview and want to commit this adjustment.",
+        key=f"commit-confirm-{draft.idempotency_key}",
+        disabled=st.session_state.get("commit_in_progress", False),
+    )
+    back_col, commit_col = st.columns(2)
+    if back_col.button(
+        "Back to preview",
+        use_container_width=True,
+        disabled=st.session_state.get("commit_in_progress", False),
+    ):
+        st.rerun()
+
+    if commit_col.button(
+        "Confirm and commit",
+        type="primary",
+        use_container_width=True,
+        disabled=not confirmed or st.session_state.get("commit_in_progress", False),
+    ):
+        # Preserve the same draft and idempotency key if the API returns an
+        # uncertain failure: the user can safely retry this exact intention.
+        st.session_state.commit_in_progress = True
+        with st.status("Commit in progress…", expanded=True) as status:
+            progress = st.progress(15, text="Sending the reviewed intention to LiMon API…")
+            st.info(
+                "Please wait and do not refresh this page. The API is validating "
+                "the active row and writing the audited output."
+            )
+            try:
+                result = api.commit(context, draft)
+                progress.progress(100, text="Output and audit metadata confirmed.")
+                status.update(label="Commit completed", state="complete", expanded=False)
+                st.session_state.workspace_success = (
+                    f"Adjustment {result['operation_id']} is {result['status']}."
+                )
+                st.session_state.pop("search_results", None)
+                reset_draft()
+                st.session_state.pop("commit_in_progress", None)
+                st.rerun()
+            except ApiError as exc:
+                progress.empty()
+                status.update(label="Commit failed", state="error", expanded=True)
+                st.error(str(exc))
+                st.session_state.pop("commit_in_progress", None)
 
 
 @st.dialog("Adjustment review", width="large")
@@ -444,7 +535,11 @@ with workspace:
                 placeholder="Explain why this adjustment is required",
                 key=f"reason-{selected_output_id}",
             )
-            preview_clicked = st.form_submit_button("Preview adjustment", type="primary")
+            preview_clicked = st.form_submit_button(
+                "Preview adjustment",
+                type="primary",
+                disabled=st.session_state.get("preview_in_progress", False),
+            )
 
         cancel_col, _ = st.columns([1, 4])
         if cancel_col.button(
@@ -488,13 +583,32 @@ with workspace:
                     idempotency_key=st.session_state.draft_key,
                     changes=field_changes,
                 )
-                preview_result = run_preview_with_progress(api, context, draft)
+                # Start the calculation on the next complete Streamlit rerun.
+                # That rerun renders the form button as disabled *before* the
+                # polling loop begins, so a double click cannot start a second
+                # calculation pipeline while this one is active.
+                st.session_state.pending_preview_draft = draft
+                st.session_state.preview_in_progress = True
+                st.rerun()
+
+        pending_preview = st.session_state.get("pending_preview_draft")
+        if st.session_state.get("preview_in_progress") and pending_preview is not None:
+            # Remove the pending marker before entering the long polling loop.
+            # Even if an unexpected rerun is queued, it has no second job to run.
+            st.session_state.pop("pending_preview_draft", None)
+            try:
+                preview_result = run_preview_with_progress(api, context, pending_preview)
                 if preview_result is not None:
                     st.session_state.preview = preview_result
                     # Commit must use exactly the intention that produced this
                     # authoritative preview, even if the visible form is edited
                     # again without being submitted.
-                    st.session_state.preview_draft = draft
+                    st.session_state.preview_draft = pending_preview
+            finally:
+                # Always unlock Preview after success, API error, timeout, or an
+                # unexpected exception. The already rendered button stays
+                # disabled until the next harmless UI rerun.
+                st.session_state.pop("preview_in_progress", None)
 
         preview = st.session_state.get("preview")
         if preview:
@@ -513,16 +627,15 @@ with workspace:
                 st.dataframe(display_row(preview["adjusted"], settings), hide_index=True, use_container_width=True)
             st.caption("Change the amount or reason and run preview again before committing.")
             if st.button("Commit adjustment", type="primary"):
-                try:
-                    # Commit sends the same context, changes and idempotency key
-                    # used for preview. The API still re-reads the active row and
-                    # rebuilds the calculation to protect against stale data.
-                    result = api.commit(context, st.session_state.preview_draft)
-                    st.success(f"Adjustment {result['operation_id']} is {result['status']}.")
-                    st.session_state.pop("search_results", None)
-                    reset_draft()
-                except ApiError as exc:
-                    st.error(str(exc))
+                # The popup freezes the reviewed intention and asks for an
+                # explicit confirmation before starting the durable API call.
+                commit_adjustment_dialog(
+                    context,
+                    st.session_state.preview_draft,
+                    preview,
+                    settings,
+                    api,
+                )
 
 # =============================================================================
 # TAB 2 — ADJUSTMENT REGISTER

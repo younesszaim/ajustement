@@ -281,6 +281,8 @@ sequenceDiagram
 
 Le preview ne réalise aucune écriture durable.
 
+Lorsqu'un preview valide est soumis, Streamlit enregistre d'abord le brouillon comme `pending_preview_draft`, active `preview_in_progress`, puis déclenche un rerun. Le bouton **Preview adjustment** est ainsi rendu désactivé avant le démarrage du polling. Le brouillon pending est consommé une seule fois et le verrou est toujours libéré à la fin, y compris après une erreur ou un timeout. Un double clic ne peut donc pas démarrer deux pipelines simultanés.
+
 ### 10.2 Pipeline de calcul
 
 L'ordre est déclaré explicitement dans `CalculationPipeline` :
@@ -326,6 +328,8 @@ sequenceDiagram
     participant V as Vertica
 
     U->>ST: Clique sur Commit
+    ST-->>U: Dialogue de revue et confirmation
+    U->>ST: Confirme explicitement
     ST->>A: POST /adjustments/commit
     A->>S: commit(context, draft)
     S->>P: Recherche idempotency_key
@@ -344,7 +348,9 @@ sequenceDiagram
     ST-->>U: Confirmation et registre actualisé
 ```
 
-Le commit ne fait pas confiance à la ligne envoyée par l'interface. Il relit la source active et appelle la même logique que le preview. Cette propriété garantit la parité Preview/Commit.
+Avant l'appel API, une boîte de dialogue rappelle le contexte, la source, le motif, la ligne active et le résultat attendu. L'utilisateur doit confirmer explicitement. Pendant l'appel synchrone, Streamlit affiche un statut de progression et désactive les actions du dialogue afin d'éviter un double clic ou une perturbation du brouillon.
+
+Le commit ne fait pas confiance à la ligne envoyée par l'interface. Il relit la source active et appelle la même logique que le preview. Cette propriété garantit la parité Preview/Commit. L'indicateur de l'interface signale que le traitement est en cours, mais n'affiche pas de fausses étapes serveur : l'endpoint de commit ne publie actuellement pas de progression détaillée. Le client autorise jusqu'à 120 secondes pour cet appel durable, contre 30 secondes par défaut pour les appels ordinaires.
 
 ### 11.2 Clé d'idempotence
 
