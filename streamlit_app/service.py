@@ -100,7 +100,10 @@ class AdjustmentService:
                 "source_output_id": draft.source_output_id,
                 "reason": draft.reason,
                 "created_by": self.settings.actor,
-                "payload": {"changes": requested_changes},
+                "payload": {
+                    "changes": requested_changes,
+                    "calculation": self._calculation_metadata(preview.adjusted),
+                },
             }
             self.operations.create(operation)
 
@@ -454,13 +457,17 @@ class AdjustmentService:
             raise AdjustmentError("At least one field must have a different value.")
         for field_key, value in requested_changes.items():
             adjusted[f[field_key]["column"]] = value
-        calculation_result = self.calculator(
-            adjusted,
-            {key: value["column"] for key, value in f.items()},
-            actual_changes,
-            progress_callback,
-            delay_seconds,
-        )
+        try:
+            calculation_result = self.calculator(
+                adjusted,
+                {key: value["column"] for key, value in f.items()},
+                actual_changes,
+                progress_callback,
+                delay_seconds,
+                calculation_config=self.settings.calculation_config,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise AdjustmentError(f"Calculation pipeline cannot run: {exc}") from exc
         if isinstance(calculation_result, tuple):
             adjusted, calculation_steps = calculation_result
         else:  # Temporary compatibility for a custom legacy two-value result.
@@ -471,6 +478,18 @@ class AdjustmentService:
             adjusted=adjusted,
             calculation_steps=calculation_steps,
         )
+
+    def _calculation_metadata(self, adjusted: dict) -> dict:
+        """Return the selected pipeline identity retained with the audit intent."""
+        config = self.settings.calculation_config
+        field = config["instrument_type_field"]
+        instrument = str(adjusted[self.settings.column(field)]).strip().upper()
+        pipeline = config["pipelines"][instrument]
+        return {
+            "instrument_type": instrument,
+            "callable": pipeline["callable"],
+            "version": pipeline.get("version"),
+        }
 
     def _build_cancel_row(self, original: dict, key: str) -> dict:
         """Copy an active row and negate every configured additive measure."""

@@ -65,7 +65,7 @@ put SQL in routes or business row construction in UI code.
 | `api_models.py` | Pydantic request bodies and HTTP validation | Database models or calculations |
 | `models.py` | Framework-independent domain dataclasses | HTTP, SQL, Streamlit |
 | `service.py` | Context validation, journal building, idempotency, commit/revert workflows | Concrete SQL or UI messages/layout |
-| `calculations.py` | Ordered DataFrame stages and progress callbacks | Database access, HTTP, Streamlit |
+| `calculations.py` | Instrument dispatcher, complete DataFrame pipelines and progress callbacks | Database access, HTTP, Streamlit |
 | `jobs.py` | In-memory preview execution and pollable job state | Durable audit history or business calculations |
 | `storage.py` | Parameterized SQL and database transactions | FastAPI exceptions or UI behavior |
 | `runtime.py` | Dependency construction and database-mode selection | Business decisions |
@@ -93,8 +93,8 @@ When adding an adjustable field:
 
 1. Complete the displayed-field steps.
 2. Add it to `editable_fields` with its reviewed options.
-3. Decide which calculation stage produces or consumes it.
-4. Update `CalculationPipeline` dependency routing.
+3. Confirm which instrument pipelines consume or produce it.
+4. Add any newly required basic input to the corresponding `required_inputs`.
 5. Test valid, invalid, unchanged, and downstream recalculation behavior.
 
 When adding an amount-like output, explicitly decide whether reversal must
@@ -112,17 +112,20 @@ def recalculate(
     overrides: dict[str, object],
     progress_callback=None,
     delay_seconds: float = 0.0,
+    calculation_config: dict | None = None,
 ) -> tuple[dict, list[str]]:
     ...
 ```
 
 - Functions operate on and return complete pandas DataFrames.
+- Dispatch strictly from the configured instrument type. Missing or unsupported
+  values must fail; never add a silent default pipeline.
+- Every selected OST, SEC or EQUITY adapter runs its complete reviewed sequence.
+  Do not restore suffix or earliest-stage routing.
 - `CalculationPipeline.stages` is the reviewed execution order; do not use
   reflection or alphabetical method discovery.
-- A manually supplied stage output starts after its producing stage.
-- A changed input starts at the stage that consumes it.
-- Multiple changes start at the earliest required stage.
-- Reapply manual overrides after every downstream stage so later calculations
+- Validate configured `required_inputs` before the adapter runs.
+- Reapply manual overrides after every stage so later calculations
   cannot silently replace explicit user choices.
 - Preserve row count. A stage that adds/removes rows must be a separate,
   deliberately designed workflow.

@@ -41,6 +41,7 @@ class Settings:
     display_fields: list[str]
     editable_fields: list[dict]
     calculation_callable: str
+    calculation_config: dict
     additive_column_patterns: list[str]
     record_types: dict[str, str]
     output_database: str
@@ -95,6 +96,7 @@ def load_settings(path: str | Path | None = None) -> Settings:
         display_fields=raw["display_fields"],
         editable_fields=raw.get("editable_fields", []),
         calculation_callable=raw["calculation"]["callable"],
+        calculation_config=raw["calculation"],
         additive_column_patterns=raw.get("additive_column_patterns", []),
         record_types=raw.get(
             "record_types", {"base": "BASE", "reversal": "REVERSAL", "adjusted": "ADJUSTED"}

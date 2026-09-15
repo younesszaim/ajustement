@@ -92,12 +92,15 @@ def base_row():
         "AsOfDate": "2026-08-06",
         "AsOfDateFlow": "2026-08-07T11:14:09",
         "FOSystem": "Murex",
+        "InstrumentType": "SEC",
         "TradeNo": "T-100",
         "isin_code": "FR0000000001",
         "security_leg_flag": 0,
         "Cash_Amount_EUR": 100.0,
         "SecurityAmount_EUR": 0.0,
         "MaturityDate": "2026-08-12",
+        "exposure_class": "RETAIL",
+        "reporting_line_lcr": "RL_DEP_01",
         "eur_amount_7d": 100.0,
         "eur_amount_30d": 0.0,
         "eur_amount_3m": 0.0,
@@ -141,6 +144,11 @@ def test_commit_retry_does_not_append_duplicate_output(settings, base_row):
     assert first["status"] == second["status"] == "COMMITTED"
     assert len(output.rows) == 2
     assert operations.operations["intent-1"]["output_ids"] == ["REV-intent-1", "ADJ-intent-1"]
+    assert operations.operations["intent-1"]["payload"]["calculation"] == {
+        "instrument_type": "SEC",
+        "callable": "streamlit_app.calculations:run_sec_pipeline",
+        "version": "demo-1",
+    }
 
 
 def test_committed_key_rejects_changed_draft_instead_of_returning_old_success(settings, base_row):

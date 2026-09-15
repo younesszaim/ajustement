@@ -264,17 +264,8 @@ Effet net après ajustement = 100 - 100 + 140 = 140</code></pre>
 → maturity_date
 → calculate_buckets
 → calculate_ldp_impacts</code></pre>
-<p>Le pipeline commence à l'étape la plus ancienne affectée par les changements :</p>
-<div class="table-wrap"><table><thead><tr>
-<th>Changement utilisateur</th>
-<th>Première étape nécessaire</th>
-</tr></thead><tbody>
-<tr><td>Montant Cash/Titre</td><td><code>calculate_buckets</code></td></tr>
-<tr><td>Exposure class</td><td>Étapes situées après la production d'exposure class</td></tr>
-<tr><td>Reporting line</td><td>Étapes situées après la production de reporting line</td></tr>
-<tr><td>Maturity date</td><td>Étapes situées après la production de maturity date</td></tr>
-</tbody></table></div>
-<p>Une valeur choisie manuellement est réappliquée après chaque étape aval. Une fonction de calcul ne peut donc pas remplacer silencieusement le choix explicite de l'utilisateur.</p>
+<p>Le dispatcher lit le type d'instrument de la ligne active et choisit strictement le pipeline complet <code>OST</code>, <code>SEC</code> ou <code>EQUITY</code>. Il n'existe aucun pipeline par défaut : un type absent ou inconnu bloque le preview. Avant le calcul, les inputs de base déclarés dans le YAML sont contrôlés. Toutes les étapes du pipeline sélectionné sont ensuite exécutées, quel que soit le champ ajusté.</p>
+<p>Une valeur choisie manuellement est réappliquée après chaque étape. Les étapes suivantes utilisent donc l'override utilisateur et une fonction ne peut pas le remplacer silencieusement.</p>
 <p>Chaque fonction reçoit et retourne un DataFrame complet et doit conserver le nombre de lignes. Les fonctions actuelles servent de démonstration ; elles doivent être remplacées ou validées contre les fonctions LiMon réelles avant production.</p>
 <h3 id="10-3-limite-du-gestionnaire-de-jobs">10.3 Limite du gestionnaire de jobs</h3>
 <p><code>PreviewJobManager</code> conserve la progression en mémoire dans le processus FastAPI. Cela convient au prototype à un seul processus.</p>
@@ -442,7 +433,9 @@ reporting_line_lcr</code></pre>
 <li>les colonnes additives à négativer ;</li>
 <li>la fonction de recalcul configurée.</li>
 </ul>
+<p>Dans le formulaire, le montant et les entrées de <code>editable_fields</code> sont disposés automatiquement par lignes de trois éditeurs. L'ordre du YAML détermine l'ordre visuel ; ajouter jusqu'à trois nouveaux champs crée simplement la ligne suivante, sans nouveau code Streamlit.</p>
 <p>Le backend valide les valeurs contrôlées même si l'interface propose déjà une liste déroulante. Une requête Swagger ne peut donc pas contourner la règle.</p>
+<p>La procédure complète est documentée dans <a href="ajouter-un-champ-ajustable.md">Ajouter un champ ajustable</a>.</p>
 <h2 id="18-configuration-supabase-et-vertica-r-el">18. Configuration Supabase et Vertica réel</h2>
 <h3 id="18-1-mode-supabase">18.1 Mode Supabase</h3>
 <p>Supabase héberge physiquement les deux schémas PostgreSQL :</p>

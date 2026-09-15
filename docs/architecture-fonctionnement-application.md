@@ -295,16 +295,15 @@ exposure_class
 → calculate_ldp_impacts
 ```
 
-Le pipeline commence à l'étape la plus ancienne affectée par les changements :
+Le dispatcher lit le type d'instrument de la ligne active et choisit strictement
+le pipeline complet `OST`, `SEC` ou `EQUITY`. Il n'existe aucun pipeline par
+défaut : un type absent ou inconnu bloque le preview. Avant le calcul, les inputs
+de base déclarés dans le YAML sont contrôlés. Toutes les étapes du pipeline
+sélectionné sont ensuite exécutées, quel que soit le champ ajusté.
 
-| Changement utilisateur | Première étape nécessaire |
-|---|---|
-| Montant Cash/Titre | `calculate_buckets` |
-| Exposure class | Étapes situées après la production d'exposure class |
-| Reporting line | Étapes situées après la production de reporting line |
-| Maturity date | Étapes situées après la production de maturity date |
-
-Une valeur choisie manuellement est réappliquée après chaque étape aval. Une fonction de calcul ne peut donc pas remplacer silencieusement le choix explicite de l'utilisateur.
+Une valeur choisie manuellement est réappliquée après chaque étape. Les étapes
+suivantes utilisent donc l'override utilisateur et une fonction ne peut pas le
+remplacer silencieusement.
 
 Chaque fonction reçoit et retourne un DataFrame complet et doit conserver le nombre de lignes. Les fonctions actuelles servent de démonstration ; elles doivent être remplacées ou validées contre les fonctions LiMon réelles avant production.
 
@@ -533,7 +532,11 @@ Le YAML définit également :
 - les colonnes additives à négativer ;
 - la fonction de recalcul configurée.
 
+Dans le formulaire, le montant et les entrées de `editable_fields` sont disposés automatiquement par lignes de trois éditeurs. L'ordre du YAML détermine l'ordre visuel ; ajouter jusqu'à trois nouveaux champs crée simplement la ligne suivante, sans nouveau code Streamlit.
+
 Le backend valide les valeurs contrôlées même si l'interface propose déjà une liste déroulante. Une requête Swagger ne peut donc pas contourner la règle.
+
+La procédure complète est documentée dans [Ajouter un champ ajustable](ajouter-un-champ-ajustable.md).
 
 ## 18. Configuration Supabase et Vertica réel
 

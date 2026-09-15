@@ -29,6 +29,7 @@ fields:
   ldp_impact_lcr: {column: ldp_impact_lcr_reglementaire, label: LDP LCR, additive: true}
   exposure_class: {column: exposure_class, label: Exposure class}
   reporting_line_lcr: {column: reporting_line_lcr, label: Reporting line LCR}
+  instrument_type: {column: InstrumentType, label: Instrument type}
 
 technical_fields:
   record_type: record_type
@@ -50,6 +51,7 @@ display_fields:
   - ldp_impact_lcr
   - exposure_class
   - reporting_line_lcr
+  - instrument_type
 
 editable_fields:
   - field: exposure_class
@@ -60,8 +62,22 @@ editable_fields:
     options: [RL_DEP_01, RL_LOAN_01, RL_SEC_01, RL_SEC_03]
 
 calculation:
-  # Replace this callable with the real LiMon calculation entry point.
-  callable: streamlit_app.calculations:recalculate_demo
+  # The dispatcher selects one complete LiMon pipeline from the active row.
+  callable: streamlit_app.calculations:recalculate_by_instrument
+  instrument_type_field: instrument_type
+  pipelines:
+    OST:
+      callable: streamlit_app.calculations:run_ost_pipeline
+      version: demo-1
+      required_inputs: [asofdate, maturity_date, leg_flag, cash_amount_eur, security_amount_eur, exposure_class, reporting_line_lcr]
+    SEC:
+      callable: streamlit_app.calculations:run_sec_pipeline
+      version: demo-1
+      required_inputs: [asofdate, maturity_date, leg_flag, cash_amount_eur, security_amount_eur, exposure_class, reporting_line_lcr]
+    EQUITY:
+      callable: streamlit_app.calculations:run_equity_pipeline
+      version: demo-1
+      required_inputs: [asofdate, maturity_date, leg_flag, cash_amount_eur, security_amount_eur, exposure_class, reporting_line_lcr]
 
 # Reversal negates every configured additive field plus columns matching these
 # explicit project patterns. Review these patterns against the real extract.

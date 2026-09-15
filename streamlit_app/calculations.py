@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+from importlib import import_module
 import time
 from typing import Callable
 
@@ -82,7 +83,7 @@ class Calculation:
 
 
 class CalculationPipeline:
-    """Execute the minimum ordered suffix affected by manual changes."""
+    """Execute one complete instrument pipeline and preserve manual overrides."""
 
     def __init__(self, calculation: Calculation | None = None):
         """Declare calculation order explicitly instead of using reflection."""
@@ -103,14 +104,6 @@ class CalculationPipeline:
             ),
         ]
 
-        # Amount is an input to bucket calculation. Unlike a manually supplied
-        # stage output, it must run calculate_buckets itself, not the next stage.
-        self.input_start_stage = {
-            "cash_amount_eur": "calculate_buckets",
-            "security_amount_eur": "calculate_buckets",
-            "asofdate": "calculate_buckets",
-        }
-
     def run(
         self,
         row: dict,
@@ -119,11 +112,11 @@ class CalculationPipeline:
         progress_callback: Callable[[str, int, int, str], None] | None = None,
         delay_seconds: float = 0.0,
     ) -> tuple[dict, list[str]]:
-        """Run affected stages and return the row plus executed stage names.
+        """Run every stage and return the row plus executed stage names.
 
-        Exposure change starts at reportline; reportline change starts at
-        maturity; amount change starts at buckets. With several changes, the
-        earliest required stage wins.
+        The full pipeline is intentionally rerun for every replacement. Manual
+        values are restored after each stage, so downstream stages consume the
+        user's explicit adjustment instead of a value recalculated upstream.
         """
         frame = pd.DataFrame([row])
         executed = []
@@ -135,9 +128,8 @@ class CalculationPipeline:
         for field, value in overrides.items():
             frame.loc[:, columns[field]] = value
 
-        selected_stages = self.stages[self._start_index(set(overrides)):]
-        total = len(selected_stages)
-        for index, stage in enumerate(selected_stages):
+        total = len(self.stages)
+        for index, stage in enumerate(self.stages):
             # The callback updates an external job record. Calculation code does
             # not import FastAPI, Streamlit or any job-storage implementation.
             if progress_callback:
@@ -164,26 +156,8 @@ class CalculationPipeline:
         result.update({key: value for key, value in frame.iloc[0].to_dict().items() if not pd.isna(value)})
         return result, executed
 
-    def _start_index(self, changed_fields: set[str]) -> int:
-        """Find the earliest stage required by all changed fields."""
-        indexes = []
-        for field in changed_fields:
-            if field in self.input_start_stage:
-                indexes.append(self._index(self.input_start_stage[field]))
-                continue
-            for index, stage in enumerate(self.stages):
-                if field in stage.outputs:
-                    # The user already supplied this stage's output.
-                    indexes.append(index + 1)
-                    break
-        return min(indexes, default=0)
 
-    def _index(self, stage_name: str) -> int:
-        """Resolve a reviewed stage name to its position."""
-        return next(index for index, stage in enumerate(self.stages) if stage.name == stage_name)
-
-
-_DEMO_PIPELINE = CalculationPipeline()
+_FULL_DEMO_PIPELINE = CalculationPipeline()
 
 
 def recalculate_demo(
@@ -192,12 +166,125 @@ def recalculate_demo(
     overrides: dict[str, object] | None = None,
     progress_callback: Callable[[str, int, int, str], None] | None = None,
     delay_seconds: float = 0.0,
+    calculation_config: dict | None = None,
 ) -> tuple[dict, list[str]]:
-    """Configured adapter from a row dictionary to the DataFrame pipeline."""
-    return _DEMO_PIPELINE.run(
+    """Backward-compatible adapter that now runs the complete demo pipeline.
+
+    ``calculation_config`` is accepted because every top-level calculator uses
+    the same service contract. This legacy adapter does not dispatch and
+    therefore deliberately ignores the value.
+    """
+    return _FULL_DEMO_PIPELINE.run(
         row,
         columns,
         overrides or {},
         progress_callback=progress_callback,
         delay_seconds=delay_seconds,
     )
+
+
+def _run_demo_instrument_pipeline(
+    row: dict,
+    columns: dict[str, str],
+    overrides: dict[str, object],
+    progress_callback=None,
+    delay_seconds: float = 0.0,
+) -> tuple[dict, list[str]]:
+    """Shared demonstrator behind independently configurable instrument adapters."""
+    return _FULL_DEMO_PIPELINE.run(
+        row,
+        columns,
+        overrides,
+        progress_callback=progress_callback,
+        delay_seconds=delay_seconds,
+    )
+
+
+def run_ost_pipeline(row, columns, overrides, progress_callback=None, delay_seconds=0.0):
+    """OST adapter; replace its body with the real LiMon OST pipeline."""
+    return _run_demo_instrument_pipeline(
+        row, columns, overrides, progress_callback, delay_seconds
+    )
+
+
+def run_sec_pipeline(row, columns, overrides, progress_callback=None, delay_seconds=0.0):
+    """SEC adapter; replace its body with the real LiMon SEC pipeline."""
+    return _run_demo_instrument_pipeline(
+        row, columns, overrides, progress_callback, delay_seconds
+    )
+
+
+def run_equity_pipeline(row, columns, overrides, progress_callback=None, delay_seconds=0.0):
+    """EQUITY adapter; replace its body with the real LiMon EQUITY pipeline."""
+    return _run_demo_instrument_pipeline(
+        row, columns, overrides, progress_callback, delay_seconds
+    )
+
+
+def _load_callable(path: str):
+    """Load one configured ``module:function`` instrument adapter."""
+    module_name, function_name = path.split(":", 1)
+    return getattr(import_module(module_name), function_name)
+
+
+def recalculate_by_instrument(
+    row: dict,
+    columns: dict[str, str],
+    overrides: dict[str, object] | None = None,
+    progress_callback: Callable[[str, int, int, str], None] | None = None,
+    delay_seconds: float = 0.0,
+    calculation_config: dict | None = None,
+) -> tuple[dict, list[str]]:
+    """Dispatch an adjusted row to its configured complete LiMon pipeline.
+
+    There is deliberately no default instrument. A missing or unsupported type
+    fails the preview instead of silently running the wrong business pipeline.
+    """
+    config = calculation_config or {}
+    instrument_field = config.get("instrument_type_field", "instrument_type")
+    instrument_column = columns.get(instrument_field)
+    if not instrument_column:
+        raise ValueError(
+            f'Instrument discriminator "{instrument_field}" is not configured in fields.'
+        )
+    instrument_value = row.get(instrument_column)
+    if instrument_value is None or not str(instrument_value).strip():
+        raise ValueError(
+            f'Instrument type is missing in column "{instrument_column}"; '
+            "OST, SEC or EQUITY is required."
+        )
+    instrument_type = str(instrument_value).strip().upper()
+    pipeline_config = (config.get("pipelines") or {}).get(instrument_type)
+    if pipeline_config is None:
+        supported = ", ".join(sorted((config.get("pipelines") or {}).keys())) or "none"
+        raise ValueError(
+            f'Instrument type "{instrument_type}" is unsupported. Configured pipelines: {supported}.'
+        )
+
+    missing = []
+    for field in pipeline_config.get("required_inputs", []):
+        physical = columns.get(field)
+        if not physical or physical not in row or row.get(physical) is None:
+            missing.append(field)
+    if missing:
+        raise ValueError(
+            f"{instrument_type} pipeline cannot run because required input columns are missing: "
+            + ", ".join(missing)
+            + "."
+        )
+
+    def scoped_progress(stage, completed, total, status):
+        if progress_callback:
+            progress_callback(
+                f"{instrument_type}/{stage}", completed, total, status
+            )
+
+    pipeline = _load_callable(pipeline_config["callable"])
+    result, steps = pipeline(
+        row,
+        columns,
+        overrides or {},
+        scoped_progress,
+        delay_seconds,
+    )
+    return result, [f"{instrument_type}/{stage}" for stage in steps]

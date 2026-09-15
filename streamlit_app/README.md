@@ -56,6 +56,7 @@ Apply these files in the Supabase SQL editor, in order:
 1. `migrations/001_adjustment_operations.sql`
 2. `migrations/002_supabase_output_lineage.sql`
 3. `migrations/003_revert_operations.sql`
+4. `migrations/004_output_instrument_type.sql`
 
 Then configure:
 

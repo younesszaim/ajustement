@@ -120,6 +120,11 @@ in the browser and sends amount, controlled fields, and reason together only
 when the user clicks Preview. Commit remains outside the form and uses the
 stored draft that produced the last successful authoritative preview.
 
+The amount and YAML-driven `editable_fields` are rendered in rows of three
+editors. Their YAML order controls visual order; adding more configured select
+fields does not require another widget block in `app.py`. See
+`docs/ajouter-un-champ-ajustable.md` for the end-to-end field procedure.
+
 The following values are stored in `st.session_state` because Streamlit reruns
 the script after interactions:
 
@@ -288,23 +293,18 @@ that `2026-08-07 11:14:09` equals `2026-08-07T11:14:09`.
 - `calculate_buckets()`;
 - `calculate_ldp_impacts()`.
 
-`CalculationPipeline` declares their order explicitly through `Stage` objects;
-it never depends on reflection or method-definition order.
-
-The starting rule distinguishes a stage output from a stage input:
-
-- manual exposure-class change starts after `exposure_class`;
-- manual reporting-line change starts after `reportline_code`;
-- manual maturity-date change starts after `maturity_date`;
-- amount change starts at `calculate_buckets`, because amount is an input;
-- multiple changes start at the earliest required stage.
+`recalculate_by_instrument()` reads the configured instrument discriminator and
+selects exactly one OST, SEC or EQUITY adapter. Missing and unsupported values
+fail before calculation; there is no silent default. Each adapter validates its
+configured basic inputs and runs the complete ordered `CalculationPipeline`.
+The pipeline never depends on reflection or method-definition order.
 
 All explicit overrides are applied before the first function and reapplied after
 every function. For example, when the user changes both exposure class and
 reporting line, the reporting-line calculation may run, but it cannot overwrite
 the user's chosen reporting line.
 
-`recalculate_demo(row, columns, overrides)` is the configured adapter. It:
+The three current instrument adapters share a demonstrator implementation. It:
 
 - selects the Cash or Titre amount from the immutable leg flag;
 - recalculates the 7D, 30D and 3M buckets;
@@ -327,7 +327,9 @@ def recalculate(
     return complete_recalculated_row, executed_stage_names
 ```
 
-The function path is selected by `calculation.callable` in project YAML.
+The dispatcher and each instrument adapter path are selected in the
+`calculation` section of project YAML. Production can replace each adapter
+independently with an override-aware LiMon OST, SEC or EQUITY wrapper.
 
 ### `streamlit_app/storage.py`
 
@@ -401,6 +403,9 @@ table and its context index.
 `migrations/002_supabase_output_lineage.sql` adds lineage columns to the
 Supabase output simulation and performs a one-time backfill from the old link
 table. The new runtime does not query that link table.
+
+`migrations/004_output_instrument_type.sql` adds and backfills the required
+OST/SEC/EQUITY discriminator in the Supabase output simulation.
 
 `sql/vertica_required_columns.sql` is the DBA-reviewed template for adding the
 four minimum technical columns to the real Vertica output.
