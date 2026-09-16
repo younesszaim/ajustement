@@ -1,0 +1,293 @@
+{
+  "context": {
+    "asofdate": "2026-08-06",
+    "version": "2026-08-07T11:14:09Z",
+    "foSystem": "MUREX",
+    "legFlag": 1
+  },
+  "adjustmentDefinition": {
+    "searchFields": [
+      {"key": "tradeId", "label": "Trade ID", "type": "text"},
+      {"key": "isinCode", "label": "ISIN", "type": "text"}
+    ],
+    "displayFields": [
+      {"key": "tradeId", "label": "Trade ID", "type": "text"},
+      {"key": "isinCode", "label": "ISIN", "type": "text"},
+      {"key": "exposureClass", "label": "Exposure class", "type": "text"},
+      {"key": "securityAmountEur", "label": "Security amount EUR", "type": "number"}
+    ],
+    "editableFields": [
+      {"key": "securityAmountEur", "label": "Security amount EUR", "type": "number", "required": false},
+      {"key": "exposureClass", "label": "Exposure class", "type": "select", "required": false, "options": ["RETAIL", "CORPORATE", "SOVEREIGN"]},
+      {"key": "reportingLineLcr", "label": "Reporting line LCR", "type": "select", "required": false, "options": ["RL_SEC_01", "RL_SEC_02"]}
+    ]
+  },
+  "tradeSearchResponse": {
+    "items": [
+      {
+        "outputRecordId": "OUT-123",
+        "tradeId": "TRADE-456",
+        "recordType": "BASE",
+        "active": true,
+        "instrumentType": "SEC",
+        "adjustmentReference": null,
+        "sourceOutputRecordId": null,
+        "parentOutputRecordId": null,
+        "values": {
+          "isinCode": "FR0000000001",
+          "exposureClass": "RETAIL",
+          "reportingLineLcr": "RL_SEC_01",
+          "securityAmountEur": 1000000,
+          "cashAmountEur": 0
+        }
+      }
+    ],
+    "page": 0,
+    "pageSize": 50,
+    "total": 1
+  },
+  "previewRequest": {
+    "context": {
+      "asofdate": "2026-08-06",
+      "version": "2026-08-07T11:14:09Z",
+      "foSystem": "MUREX",
+      "legFlag": 1
+    },
+    "sourceOutputRecordId": "OUT-123",
+    "changes": {
+      "securityAmountEur": 1500000,
+      "exposureClass": "CORPORATE"
+    },
+    "reason": "Correction validated by LCR control"
+  },
+  "previewRunning": {
+    "previewId": "PREVIEW-123",
+    "status": "RUNNING",
+    "progress": {"completed": 2, "total": 5, "percent": 40, "currentStep": "SEC/reporting_line"},
+    "pipeline": {"instrumentType": "SEC", "name": "SEC_FULL_PIPELINE", "version": "2026.09"},
+    "steps": [
+      {"key": "SEC/exposure_class", "label": "Exposure class", "status": "COMPLETED"},
+      {"key": "SEC/reporting_line", "label": "Reporting line", "status": "RUNNING"},
+      {"key": "SEC/maturity_date", "label": "Maturity date", "status": "PENDING"},
+      {"key": "SEC/buckets", "label": "Liquidity buckets", "status": "PENDING"},
+      {"key": "SEC/impacts", "label": "LCR impacts", "status": "PENDING"}
+    ]
+  },
+  "commitRequest": {
+    "previewId": "PREVIEW-123",
+    "idempotencyKey": "a60d6589-791a-4477-84f6-b125d85274aa"
+  },
+  "commitResponse": {
+    "operationId": "OP-789",
+    "status": "COMMITTED",
+    "outputRecordIds": ["REV-a60d6589", "ADJ-a60d6589"]
+  },
+  "cancellationPreview": {
+    "previewId": "CANCEL-PREVIEW-123",
+    "original": {"outputRecordId": "OUT-123", "recordType": "BASE", "active": true},
+    "reversal": {"outputRecordId": "REV-CANCEL-123", "recordType": "REVERSAL", "active": false}
+  },
+  "proxyPreview": {
+    "previewId": "PROXY-PREVIEW-123",
+    "generatedTradeId": "PROXY-TRADE-123",
+    "generatedOutputRecordId": "PROXY-OUT-123",
+    "proxy": {
+      "outputRecordId": "PROXY-OUT-123",
+      "tradeId": "PROXY-TRADE-123",
+      "recordType": "ADJUSTED",
+      "active": true,
+      "instrumentType": "SEC",
+      "values": {"currency": "EUR", "securityAmountEur": 500000}
+    }
+  },
+  "batchPreview": {
+    "batchPreviewId": "BATCH-PREVIEW-123",
+    "status": "COMPLETED",
+    "tradeCount": 2,
+    "insertedRecords": 4,
+    "progress": {"completed": 2, "total": 2, "percent": 100, "currentStep": null},
+    "items": [
+      {"previewId": "PREVIEW-123", "sourceOutputRecordId": "OUT-123"},
+      {"previewId": "PREVIEW-124", "sourceOutputRecordId": "OUT-124"}
+    ],
+    "aggregateDeltas": [
+      {"field": "securityAmountEur", "label": "Security amount EUR", "delta": 750000}
+    ]
+  },
+  "operationSummary": {
+    "operationId": "OP-789",
+    "operationType": "REPLACE",
+    "status": "COMMITTED",
+    "createdAt": "2026-08-07T12:00:00Z",
+    "createdBy": "user@example.com",
+    "tradeId": "TRADE-456",
+    "sourceOutputRecordId": "OUT-123",
+    "reason": "Correction validated by LCR control",
+    "context": {
+      "asofdate": "2026-08-06",
+      "version": "2026-08-07T11:14:09Z",
+      "foSystem": "MUREX",
+      "legFlag": 1
+    },
+    "revertAllowed": true,
+    "revertedByOperationId": null
+  },
+  "adjustmentRegister": {
+    "items": [
+      {
+        "operationId": "OP-789",
+        "operationType": "REPLACE",
+        "status": "COMMITTED",
+        "createdAt": "2026-08-07T12:00:00Z",
+        "createdBy": "user@example.com",
+        "tradeId": "TRADE-456",
+        "sourceOutputRecordId": "OUT-123",
+        "reason": "Correction validated by LCR control",
+        "context": {
+          "asofdate": "2026-08-06",
+          "version": "2026-08-07T11:14:09Z",
+          "foSystem": "MUREX",
+          "legFlag": 1
+        },
+        "revertAllowed": true,
+        "revertedByOperationId": null,
+        "revertsOperationId": null,
+        "summary": {
+          "changedFieldCount": 2,
+          "insertedRecordCount": 2,
+          "changedFields": ["securityAmountEur", "exposureClass"]
+        }
+      },
+      {
+        "operationId": "OP-700",
+        "operationType": "REPLACE",
+        "status": "REVERTED",
+        "createdAt": "2026-08-06T09:15:00Z",
+        "createdBy": "user@example.com",
+        "tradeId": "TRADE-300",
+        "sourceOutputRecordId": "OUT-300",
+        "reason": "Correction of reporting line",
+        "context": {
+          "asofdate": "2026-08-05",
+          "version": "2026-08-06T06:00:00Z",
+          "foSystem": "ORCHESTRADE",
+          "legFlag": 1
+        },
+        "revertAllowed": false,
+        "revertedByOperationId": "OP-701",
+        "revertsOperationId": null,
+        "summary": {
+          "changedFieldCount": 1,
+          "insertedRecordCount": 2,
+          "changedFields": ["reportingLineLcr"]
+        }
+      },
+      {
+        "operationId": "OP-701",
+        "operationType": "REVERT",
+        "status": "COMMITTED",
+        "createdAt": "2026-08-06T10:05:00Z",
+        "createdBy": "functional.admin@example.com",
+        "tradeId": "TRADE-300",
+        "sourceOutputRecordId": "OUT-300",
+        "reason": "Original reporting line was confirmed as correct",
+        "context": {
+          "asofdate": "2026-08-05",
+          "version": "2026-08-06T06:00:00Z",
+          "foSystem": "ORCHESTRADE",
+          "legFlag": 1
+        },
+        "revertAllowed": false,
+        "revertedByOperationId": null,
+        "revertsOperationId": "OP-700",
+        "summary": {
+          "changedFieldCount": 0,
+          "insertedRecordCount": 2,
+          "changedFields": []
+        }
+      },
+      {
+        "operationId": "OP-750",
+        "operationType": "CANCEL",
+        "status": "COMMITTED",
+        "createdAt": "2026-08-07T08:30:00Z",
+        "createdBy": "user@example.com",
+        "tradeId": "TRADE-400",
+        "sourceOutputRecordId": "OUT-400",
+        "reason": "Trade cancelled in the source system",
+        "context": {
+          "asofdate": "2026-08-06",
+          "version": "2026-08-07T11:14:09Z",
+          "foSystem": "MUREX",
+          "legFlag": 0
+        },
+        "revertAllowed": false,
+        "revertedByOperationId": null,
+        "revertsOperationId": null,
+        "summary": {
+          "changedFieldCount": 0,
+          "insertedRecordCount": 1,
+          "changedFields": []
+        }
+      },
+      {
+        "operationId": "OP-790",
+        "operationType": "REPLACE",
+        "status": "RECONCILIATION_REQUIRED",
+        "createdAt": "2026-08-07T12:45:00Z",
+        "createdBy": "user@example.com",
+        "tradeId": "TRADE-500",
+        "sourceOutputRecordId": "OUT-500",
+        "reason": "Correction of security amount",
+        "context": {
+          "asofdate": "2026-08-06",
+          "version": "2026-08-07T11:14:09Z",
+          "foSystem": "MUREX",
+          "legFlag": 1
+        },
+        "revertAllowed": false,
+        "revertedByOperationId": null,
+        "revertsOperationId": null,
+        "summary": {
+          "changedFieldCount": 1,
+          "insertedRecordCount": 2,
+          "changedFields": ["securityAmountEur"]
+        },
+        "reconciliation": {
+          "required": true,
+          "diagnostic": "Output rows exist but metadata confirmation failed.",
+          "outputRowsAlreadyWritten": 2,
+          "retryAllowed": true
+        }
+      }
+    ],
+    "page": 0,
+    "pageSize": 50,
+    "total": 5,
+    "appliedFilters": {
+      "asofdate": null,
+      "version": null,
+      "status": null
+    }
+  },
+  "reconciliationRequired": {
+    "operationId": "OP-790",
+    "status": "RECONCILIATION_REQUIRED",
+    "reconciliation": {
+      "required": true,
+      "diagnostic": "Output rows exist but metadata confirmation failed.",
+      "outputRowsAlreadyWritten": 2,
+      "retryAllowed": true
+    }
+  },
+  "error": {
+    "error": {
+      "code": "SOURCE_ROW_NO_LONGER_ACTIVE",
+      "message": "The selected row is no longer active.",
+      "field": null,
+      "retryable": false,
+      "correlationId": "REQ-123",
+      "details": {}
+    }
+  }
+}

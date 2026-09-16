@@ -1,0 +1,824 @@
+openapi: 3.1.0
+info:
+  title: LiMon Adjustment API
+  version: 1.0.0-draft
+  description: >-
+    Contract-first API derived from the validated Streamlit adjustment journey.
+    Business output is append-only; Angular never constructs output rows itself.
+servers:
+  - url: http://localhost:8001/api/v1
+    description: Local development
+tags:
+  - name: Context
+  - name: Configuration
+  - name: Trades
+  - name: Adjustments
+  - name: Operations
+paths:
+  /contexts/asofdates:
+    get:
+      tags: [Context]
+      operationId: listAsofdates
+      responses:
+        "200":
+          description: Available output dates
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StringItems"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /contexts/versions:
+    get:
+      tags: [Context]
+      operationId: listVersions
+      parameters:
+        - $ref: "#/components/parameters/Asofdate"
+      responses:
+        "200":
+          description: Versions available for the selected date
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StringItems"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /contexts/fo-systems:
+    get:
+      tags: [Context]
+      operationId: listFoSystems
+      parameters:
+        - $ref: "#/components/parameters/Asofdate"
+        - $ref: "#/components/parameters/Version"
+      responses:
+        "200":
+          description: FO systems in the selected snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StringItems"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /adjustment-definition:
+    get:
+      tags: [Configuration]
+      operationId: getAdjustmentDefinition
+      responses:
+        "200":
+          description: Fields used to construct filters, grids and adjustment forms
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdjustmentDefinition"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /trades/search:
+    post:
+      tags: [Trades]
+      operationId: searchTrades
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TradeSearchRequest"
+      responses:
+        "200":
+          description: Bounded and paginated trade rows
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TradeSearchResponse"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /trades/{outputRecordId}/lineage:
+    get:
+      tags: [Trades]
+      operationId: getTradeLineage
+      parameters:
+        - $ref: "#/components/parameters/OutputRecordId"
+        - $ref: "#/components/parameters/Asofdate"
+        - $ref: "#/components/parameters/Version"
+        - $ref: "#/components/parameters/FoSystem"
+        - $ref: "#/components/parameters/LegFlag"
+      responses:
+        "200":
+          description: Ordered BASE, REVERSAL and ADJUSTED lineage
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TradeRow"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /adjustment-impacts:
+    post:
+      tags: [Adjustments]
+      operationId: resolveAdjustmentImpact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PreviewRequest"
+      responses:
+        "200":
+          description: Pipeline stages affected by the requested values
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [impactedStages]
+                properties:
+                  impactedStages:
+                    type: array
+                    items: {type: string}
+        default:
+          $ref: "#/components/responses/ApiError"
+  /adjustment-previews:
+    post:
+      tags: [Adjustments]
+      operationId: createAdjustmentPreview
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PreviewRequest"
+      responses:
+        "202":
+          description: Preview calculation accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Preview"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /adjustment-previews/{previewId}:
+    get:
+      tags: [Adjustments]
+      operationId: getAdjustmentPreview
+      parameters:
+        - name: previewId
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Current progress and eventual calculated rows
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Preview"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /adjustments:
+    post:
+      tags: [Adjustments]
+      operationId: commitAdjustment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommitRequest"
+      responses:
+        "200":
+          description: Idempotent adjustment result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommitResponse"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /cancellations:
+    post:
+      tags: [Adjustments]
+      operationId: cancelTrade
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancellationRequest"
+      responses:
+        "200":
+          description: Idempotent reversal-only cancellation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommitResponse"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /cancellation-previews:
+    post:
+      tags: [Adjustments]
+      operationId: createCancellationPreview
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancellationPreviewRequest"
+      responses:
+        "200":
+          description: Source and reversal-only cancellation preview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancellationPreview"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /proxy-previews:
+    post:
+      tags: [Adjustments]
+      operationId: createProxyPreview
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProxyPreviewRequest"
+      responses:
+        "200":
+          description: Recalculated new-trade preview with generated identities
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProxyPreview"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /proxies:
+    post:
+      tags: [Adjustments]
+      operationId: commitProxy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommitRequest"
+      responses:
+        "200":
+          description: Idempotent proxy commit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommitResponse"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /batch-adjustment-previews:
+    post:
+      tags: [Adjustments]
+      operationId: createBatchAdjustmentPreview
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchPreviewRequest"
+      responses:
+        "202":
+          description: Multi-trade preview accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BatchPreview"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /batch-adjustment-previews/{batchPreviewId}:
+    get:
+      tags: [Adjustments]
+      operationId: getBatchAdjustmentPreview
+      parameters:
+        - name: batchPreviewId
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Batch calculation progress and aggregate impact
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BatchPreview"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /batch-adjustments:
+    post:
+      tags: [Adjustments]
+      operationId: commitBatchAdjustment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchCommitRequest"
+      responses:
+        "200":
+          description: Idempotent multi-trade commit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommitResponse"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /operations:
+    get:
+      tags: [Operations]
+      operationId: listOperations
+      parameters:
+        - name: asofdate
+          in: query
+          schema: {type: string, format: date}
+        - name: version
+          in: query
+          schema: {type: string}
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/OperationStatus"
+        - name: page
+          in: query
+          schema: {type: integer, minimum: 0, default: 0}
+        - name: pageSize
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 200, default: 50}
+      responses:
+        "200":
+          description: Paginated adjustment register
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationPage"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /operations/{operationId}:
+    get:
+      tags: [Operations]
+      operationId: getOperation
+      parameters:
+        - $ref: "#/components/parameters/OperationId"
+      responses:
+        "200":
+          description: Persistent review data for one operation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationDetail"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /operations/{operationId}/reverts:
+    post:
+      tags: [Operations]
+      operationId: revertOperation
+      parameters:
+        - $ref: "#/components/parameters/OperationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RevertRequest"
+      responses:
+        "200":
+          description: Idempotent append-only revert result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommitResponse"
+        default:
+          $ref: "#/components/responses/ApiError"
+  /operations/{operationId}/reconciliation:
+    post:
+      tags: [Operations]
+      operationId: reconcileOperation
+      parameters:
+        - $ref: "#/components/parameters/OperationId"
+      responses:
+        "200":
+          description: Retry metadata confirmation for already-written output rows
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReconciliationResponse"
+        default:
+          $ref: "#/components/responses/ApiError"
+components:
+  parameters:
+    Asofdate:
+      name: asofdate
+      in: query
+      required: true
+      schema: {type: string, format: date}
+    Version:
+      name: version
+      in: query
+      required: true
+      schema: {type: string}
+    FoSystem:
+      name: foSystem
+      in: query
+      required: true
+      schema: {type: string}
+    LegFlag:
+      name: legFlag
+      in: query
+      required: true
+      schema: {type: integer, enum: [0, 1]}
+    OutputRecordId:
+      name: outputRecordId
+      in: path
+      required: true
+      schema: {type: string}
+    OperationId:
+      name: operationId
+      in: path
+      required: true
+      schema: {type: string}
+  responses:
+    ApiError:
+      description: Stable error envelope
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+  schemas:
+    StringItems:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {type: string}
+    Context:
+      type: object
+      additionalProperties: false
+      required: [asofdate, version, foSystem, legFlag]
+      properties:
+        asofdate: {type: string, format: date}
+        version: {type: string}
+        foSystem: {type: string}
+        legFlag: {type: integer, enum: [0, 1]}
+    FieldType:
+      type: string
+      enum: [text, number, date, select]
+    FieldDefinition:
+      type: object
+      required: [key, label, type]
+      properties:
+        key: {type: string}
+        label: {type: string}
+        type: {$ref: "#/components/schemas/FieldType"}
+        required: {type: boolean, default: false}
+        options:
+          type: array
+          items: {type: [string, number]}
+    AdjustmentDefinition:
+      type: object
+      required: [searchFields, displayFields, editableFields]
+      properties:
+        searchFields:
+          type: array
+          items: {$ref: "#/components/schemas/FieldDefinition"}
+        displayFields:
+          type: array
+          items: {$ref: "#/components/schemas/FieldDefinition"}
+        editableFields:
+          type: array
+          items: {$ref: "#/components/schemas/FieldDefinition"}
+    RecordType:
+      type: string
+      enum: [BASE, REVERSAL, ADJUSTED]
+    InstrumentType:
+      type: string
+      enum: [OST, SEC, EQUITY]
+    TradeRow:
+      type: object
+      required: [outputRecordId, tradeId, recordType, active, instrumentType, values]
+      properties:
+        outputRecordId: {type: string}
+        tradeId: {type: string}
+        recordType: {$ref: "#/components/schemas/RecordType"}
+        active: {type: boolean}
+        instrumentType: {$ref: "#/components/schemas/InstrumentType"}
+        adjustmentReference: {type: [string, "null"]}
+        sourceOutputRecordId: {type: [string, "null"]}
+        parentOutputRecordId: {type: [string, "null"]}
+        values:
+          type: object
+          additionalProperties: true
+    Filter:
+      type: object
+      required: [field, operator, value]
+      properties:
+        field: {type: string}
+        operator:
+          type: string
+          enum: [equals, contains, startsWith, in, greaterThan, lessThan]
+        value: {}
+    TradeSearchRequest:
+      type: object
+      required: [context, page, pageSize]
+      properties:
+        context: {$ref: "#/components/schemas/Context"}
+        filters:
+          type: array
+          items: {$ref: "#/components/schemas/Filter"}
+          default: []
+        page: {type: integer, minimum: 0, default: 0}
+        pageSize: {type: integer, minimum: 1, maximum: 500, default: 50}
+    TradeSearchResponse:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/TradeRow"}
+        page: {type: integer}
+        pageSize: {type: integer}
+        total: {type: integer, minimum: 0}
+    PreviewRequest:
+      type: object
+      additionalProperties: false
+      required: [context, sourceOutputRecordId, changes, reason]
+      properties:
+        context: {$ref: "#/components/schemas/Context"}
+        sourceOutputRecordId: {type: string}
+        changes:
+          type: object
+          minProperties: 1
+          additionalProperties: true
+        reason: {type: string, minLength: 1}
+    JobStatus:
+      type: string
+      enum: [PENDING, RUNNING, COMPLETED, FAILED]
+    StepStatus:
+      type: string
+      enum: [PENDING, RUNNING, COMPLETED, FAILED]
+    CalculationStep:
+      type: object
+      required: [key, label, status]
+      properties:
+        key: {type: string}
+        label: {type: string}
+        status: {$ref: "#/components/schemas/StepStatus"}
+    Progress:
+      type: object
+      required: [completed, total, percent]
+      properties:
+        completed: {type: integer, minimum: 0}
+        total: {type: integer, minimum: 0}
+        percent: {type: integer, minimum: 0, maximum: 100}
+        currentStep: {type: [string, "null"]}
+    PipelineIdentity:
+      type: object
+      required: [instrumentType, name, version]
+      properties:
+        instrumentType: {$ref: "#/components/schemas/InstrumentType"}
+        name: {type: string}
+        version: {type: string}
+    Difference:
+      type: object
+      required: [field, originalValue, adjustedValue, origin]
+      properties:
+        field: {type: string}
+        originalValue: {}
+        adjustedValue: {}
+        origin:
+          type: string
+          enum: [USER, CALCULATION]
+    Preview:
+      type: object
+      required: [previewId, status, progress, steps]
+      properties:
+        previewId: {type: string}
+        status: {$ref: "#/components/schemas/JobStatus"}
+        progress: {$ref: "#/components/schemas/Progress"}
+        pipeline: {$ref: "#/components/schemas/PipelineIdentity"}
+        steps:
+          type: array
+          items: {$ref: "#/components/schemas/CalculationStep"}
+        original: {$ref: "#/components/schemas/TradeRow"}
+        reversal: {$ref: "#/components/schemas/TradeRow"}
+        adjusted: {$ref: "#/components/schemas/TradeRow"}
+        differences:
+          type: array
+          items: {$ref: "#/components/schemas/Difference"}
+        error: {$ref: "#/components/schemas/ErrorDetail"}
+    CommitRequest:
+      type: object
+      additionalProperties: false
+      required: [previewId, idempotencyKey]
+      properties:
+        previewId: {type: string}
+        idempotencyKey: {type: string, minLength: 1}
+    CancellationRequest:
+      type: object
+      additionalProperties: false
+      required: [context, sourceOutputRecordId, reason, idempotencyKey]
+      properties:
+        context: {$ref: "#/components/schemas/Context"}
+        sourceOutputRecordId: {type: string}
+        reason: {type: string, minLength: 1}
+        idempotencyKey: {type: string, minLength: 1}
+    CancellationPreviewRequest:
+      type: object
+      additionalProperties: false
+      required: [context, sourceOutputRecordId]
+      properties:
+        context: {$ref: "#/components/schemas/Context"}
+        sourceOutputRecordId: {type: string}
+    CancellationPreview:
+      type: object
+      required: [previewId, original, reversal]
+      properties:
+        previewId: {type: string}
+        original: {$ref: "#/components/schemas/TradeRow"}
+        reversal: {$ref: "#/components/schemas/TradeRow"}
+    ProxyPreviewRequest:
+      type: object
+      additionalProperties: false
+      required: [context, draftId, fields, reason]
+      properties:
+        context: {$ref: "#/components/schemas/Context"}
+        draftId: {type: string, minLength: 1}
+        fields:
+          type: object
+          additionalProperties: true
+        reason: {type: string, minLength: 1}
+    ProxyPreview:
+      type: object
+      required: [previewId, generatedTradeId, generatedOutputRecordId, proxy]
+      properties:
+        previewId: {type: string}
+        generatedTradeId: {type: string}
+        generatedOutputRecordId: {type: string}
+        proxy: {$ref: "#/components/schemas/TradeRow"}
+        pipeline: {$ref: "#/components/schemas/PipelineIdentity"}
+        steps:
+          type: array
+          items: {$ref: "#/components/schemas/CalculationStep"}
+    BatchPreviewItemRequest:
+      type: object
+      required: [sourceOutputRecordId, changes]
+      properties:
+        sourceOutputRecordId: {type: string}
+        changes:
+          type: object
+          minProperties: 1
+          additionalProperties: true
+    BatchPreviewRequest:
+      type: object
+      required: [context, items, reason]
+      properties:
+        context: {$ref: "#/components/schemas/Context"}
+        items:
+          type: array
+          minItems: 1
+          items: {$ref: "#/components/schemas/BatchPreviewItemRequest"}
+        reason: {type: string, minLength: 1}
+    AggregateDelta:
+      type: object
+      required: [field, label, delta]
+      properties:
+        field: {type: string}
+        label: {type: string}
+        delta: {type: number}
+    BatchPreview:
+      type: object
+      required: [batchPreviewId, status, tradeCount, insertedRecords, items, aggregateDeltas]
+      properties:
+        batchPreviewId: {type: string}
+        status: {$ref: "#/components/schemas/JobStatus"}
+        tradeCount: {type: integer, minimum: 1}
+        insertedRecords: {type: integer, minimum: 0}
+        progress: {$ref: "#/components/schemas/Progress"}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/Preview"}
+        aggregateDeltas:
+          type: array
+          items: {$ref: "#/components/schemas/AggregateDelta"}
+    BatchCommitRequest:
+      type: object
+      required: [batchPreviewId, idempotencyKey]
+      properties:
+        batchPreviewId: {type: string}
+        idempotencyKey: {type: string, minLength: 1}
+    RevertRequest:
+      type: object
+      additionalProperties: false
+      required: [reason, idempotencyKey]
+      properties:
+        reason: {type: string, minLength: 1}
+        idempotencyKey: {type: string, minLength: 1}
+    OperationStatus:
+      type: string
+      enum: [PENDING, COMMITTED, FAILED, REVERTED, RECONCILIATION_REQUIRED]
+    OperationType:
+      type: string
+      enum: [REPLACE, CANCEL, REVERT]
+    CommitResponse:
+      type: object
+      required: [operationId, status, outputRecordIds]
+      properties:
+        operationId: {type: string}
+        status: {$ref: "#/components/schemas/OperationStatus"}
+        outputRecordIds:
+          type: array
+          items: {type: string}
+    OperationSummary:
+      type: object
+      required: [operationId, operationType, status, createdAt, context, sourceOutputRecordId, reason, revertAllowed]
+      properties:
+        operationId: {type: string}
+        operationType: {$ref: "#/components/schemas/OperationType"}
+        status: {$ref: "#/components/schemas/OperationStatus"}
+        createdAt: {type: string, format: date-time}
+        createdBy: {type: [string, "null"]}
+        tradeId: {type: [string, "null"]}
+        sourceOutputRecordId: {type: string}
+        reason: {type: string}
+        context: {$ref: "#/components/schemas/Context"}
+        revertAllowed: {type: boolean}
+        revertedByOperationId: {type: [string, "null"]}
+        revertsOperationId:
+          type: [string, "null"]
+          description: Original operation targeted when this item is a REVERT.
+        summary:
+          $ref: "#/components/schemas/OperationImpactSummary"
+        reconciliation:
+          $ref: "#/components/schemas/ReconciliationDetail"
+    OperationImpactSummary:
+      type: object
+      properties:
+        changedFieldCount: {type: integer, minimum: 0}
+        insertedRecordCount: {type: integer, minimum: 0}
+        changedFields:
+          type: array
+          items: {type: string}
+    OperationDetail:
+      allOf:
+        - $ref: "#/components/schemas/OperationSummary"
+        - type: object
+          properties:
+            requestedChanges:
+              type: object
+              additionalProperties: true
+            pipeline: {$ref: "#/components/schemas/PipelineIdentity"}
+            original: {$ref: "#/components/schemas/TradeRow"}
+            reversal: {$ref: "#/components/schemas/TradeRow"}
+            adjusted: {$ref: "#/components/schemas/TradeRow"}
+            revertedOperationId: {type: [string, "null"]}
+            reconciliation:
+              $ref: "#/components/schemas/ReconciliationDetail"
+    OperationPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/OperationSummary"}
+        page: {type: integer}
+        pageSize: {type: integer}
+        total: {type: integer, minimum: 0}
+        appliedFilters:
+          type: object
+          additionalProperties: true
+    ErrorDetail:
+      type: object
+      required: [code, message, retryable, correlationId, details]
+      properties:
+        code: {type: string}
+        message: {type: string}
+        field: {type: [string, "null"]}
+        retryable: {type: boolean}
+        correlationId: {type: string}
+        details:
+          type: object
+          additionalProperties: true
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error: {$ref: "#/components/schemas/ErrorDetail"}
+    ReconciliationDetail:
+      type: object
+      properties:
+        required: {type: boolean}
+        diagnostic: {type: [string, "null"]}
+        outputRowsAlreadyWritten: {type: integer, minimum: 0}
+        retryAllowed: {type: boolean}
+    ReconciliationResponse:
+      type: object
+      required: [operationId, status, recoveredOutputRecords]
+      properties:
+        operationId: {type: string}
+        status: {$ref: "#/components/schemas/OperationStatus"}
+        recoveredOutputRecords: {type: integer, minimum: 0}
