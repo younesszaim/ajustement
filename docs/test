@@ -1,0 +1,269 @@
+Point 1 — Cartographie de tes activités sur LiMon
+
+Je propose de classer ton rôle en six blocs :
+
+1. conception et développement ;
+2. intégration et traitement des données ;
+3. exploitation et support de production ;
+4. expertise fonctionnelle ;
+5. coordination et accompagnement ;
+6. architecture et industrialisation.
+
+1. Conception et développement Python
+
+Tu interviens sur la conception, le développement et l’évolution des traitements LiMon.
+
+Activités
+
+* Développer les pipelines Python de la plateforme.
+* Implémenter les règles de transformation et d’enrichissement.
+* Maintenir et faire évoluer le code existant.
+* Développer de nouveaux calculateurs selon les besoins métier.
+* Faire évoluer les traitements par produit ou système source.
+* Concevoir des composants réutilisables.
+* Corriger les anomalies détectées en recette ou en production.
+* Réaliser des extractions et outils ponctuels pour les utilisateurs.
+* Développer des outils de contrôle, de complétude et d’investigation.
+* Concevoir l’outil d’ajustement permettant de corriger certains attributs, recalculer les dépendances et historiser les ajustements.
+
+Compétences mobilisées
+
+* Python.
+* Pandas et traitement de données.
+* SQL.
+* Modélisation des traitements.
+* Algorithmique.
+* Optimisation des performances.
+* Tests et contrôle des résultats.
+* Lecture et compréhension d’un code existant complexe.
+
+Valeur apportée
+
+Tu ne te limites pas à coder une spécification. Tu participes à la compréhension du besoin, à la conception de la règle et à sa traduction en traitement industrialisé.
+
+⸻
+
+2. Intégration et préparation des données
+
+Tu prends en charge la circulation de la donnée depuis les systèmes sources jusqu’aux données exploitables par LiMon.
+
+Sources concernées
+
+* Orchestrade.
+* APEX.
+* Murex.
+* Kondor.
+* Helix.
+* SOPHIS.
+* SFCM.
+* BMF.
+* CARD.
+* Korus.
+* Référentiels titres, émetteurs, contreparties et ratings.
+* APIs, flux CFT, fichiers et données déposées dans S3.
+
+Activités
+
+* Comprendre la structure fonctionnelle et technique de chaque source.
+* Intégrer de nouveaux fichiers ou endpoints API.
+* Contrôler les schémas, colonnes, formats et types.
+* Vérifier la présence et la fraîcheur des données.
+* Gérer les différentes asofdate et asofdateflow.
+* Contrôler la cohérence entre la date du run et la version des données reçues.
+* Normaliser les données provenant de systèmes différents.
+* Effectuer les jointures avec les référentiels.
+* Enrichir les données avec les informations de titres, contreparties et émetteurs.
+* Déterminer les classifications, buckets, report lines, HQLA et autres attributs.
+* Gérer les données manquantes, tardives, dupliquées ou incohérentes.
+* Mettre en place des mécanismes de fallback lorsque les données attendues sont indisponibles.
+* Contrôler les volumes attendus et les volumes observés.
+* Garantir la traçabilité de la donnée jusqu’à sa source.
+
+Points de vigilance que tu maîtrises
+
+* Une source peut être techniquement présente mais fonctionnellement obsolète.
+* Un fichier peut être reçu avec une mauvaise date métier.
+* Une donnée manquante peut bloquer tout le run ou seulement un périmètre.
+* Une modification de schéma peut produire des erreurs en cascade.
+* Un référentiel incorrect peut générer des résultats techniquement calculés mais fonctionnellement faux.
+
+⸻
+
+3. Exploitation et support de production
+
+C’est une partie importante de ton rôle, car LiMon est une chaîne quotidienne soumise à des contraintes horaires.
+
+Suivi quotidien
+
+* Vérifier la disponibilité des flux nécessaires au lancement.
+* Suivre les horaires de réception des fichiers.
+* Contrôler les dates métier et les versions reçues.
+* Surveiller l’exécution des DAG Airflow.
+* Identifier les tâches en échec ou anormalement longues.
+* Contrôler la présence des outputs attendus.
+* Vérifier la cohérence des volumes produits.
+* S’assurer que les données finales sont disponibles pour les consommateurs.
+
+Gestion des incidents
+
+* Identifier si l’incident vient :
+    * d’une source ;
+    * d’un fichier ;
+    * d’une API ;
+    * d’un référentiel ;
+    * d’une règle de calcul ;
+    * d’un problème de mémoire ;
+    * de Kubernetes ;
+    * d’Airflow ;
+    * de S3 ;
+    * de Vertica ;
+    * d’une configuration d’environnement.
+* Analyser les logs applicatifs et techniques.
+* Identifier la première tâche réellement responsable d’une erreur en cascade.
+* Déterminer le périmètre fonctionnel touché.
+* Évaluer si l’incident est bloquant ou non bloquant.
+* Corriger la cause lorsque cela relève de LiMon.
+* Solliciter l’équipe appropriée lorsqu’une dépendance externe est responsable.
+* Relancer une tâche ou un sous-ensemble du pipeline.
+* Éviter les doublons lors des reprises.
+* Vérifier les résultats après relance.
+* Informer les parties prenantes de l’impact et de l’avancement.
+* Documenter les incidents significatifs.
+
+Expertise de reprise
+
+Tu sais notamment déterminer :
+
+* quelles tâches peuvent être rejouées indépendamment ;
+* à partir de quelle étape reprendre le traitement ;
+* quels outputs doivent être supprimés ou conservés ;
+* si une relance risque de créer des doublons ;
+* si un fallback peut être utilisé ;
+* si le résultat reste utilisable malgré une source indisponible ;
+* quels contrôles effectuer avant de remettre les données à disposition.
+
+Cette connaissance est particulièrement importante à documenter pour la passation.
+
+⸻
+
+4. Expertise fonctionnelle LiMon
+
+Tu as acquis une connaissance fonctionnelle qui dépasse celle d’un développeur classique.
+
+Chaîne fonctionnelle maîtrisée
+
+Tu sais suivre une donnée selon le cheminement suivant :
+
+Système Front Office → position ou trade → cash-flow → settlement → titre ou contrepartie → classification → HQLA → bucket → inflow/outflow → reporting LCR ou Stress Test
+
+Notions utilisées
+
+* Positions et trades.
+* Cash-flows.
+* Settlement cash.
+* Collatéral reçu et posté.
+* Repo et reverse repo.
+* Titres Equity et Fixed Income.
+* Contreparties et émetteurs.
+* Ratings et Final Rating.
+* Exposure Class.
+* HQLA : L1, L2A, L2B et non-HQLA.
+* Maturités et buckets temporels.
+* Inflows et outflows.
+* Réserves de liquidité.
+* Report lines.
+* LCR.
+* Stress Tests de liquidité.
+
+Activités fonctionnelles
+
+* Comprendre les demandes formulées par les métiers.
+* Challenger la faisabilité et la cohérence des règles.
+* Traduire une règle métier en logique de calcul.
+* Analyser les résultats produits.
+* Expliquer l’origine d’un montant ou d’une classification.
+* Investiguer les écarts entre deux versions.
+* Comparer les données LiMon avec les données sources ou les résultats existants.
+* Identifier si un écart vient de la donnée ou de la règle.
+* Participer aux recettes fonctionnelles.
+* Échanger avec RPC, IF, EXM, GMD et FPM.
+* Expliquer les résultats aux utilisateurs Finance.
+
+⸻
+
+5. Architecture et industrialisation
+
+Tu contribues à faire fonctionner LiMon comme une application industrialisée, et non comme une collection de scripts.
+
+Orchestration Airflow
+
+* Concevoir et maintenir les DAG.
+* Organiser les dépendances entre plus de 160 tâches.
+* Paramétrer les runs et les dates de traitement.
+* Gérer les retries et les callbacks.
+* Permettre la relance partielle.
+* Suivre la durée des traitements.
+* Éviter les dépendances inutiles et les erreurs en cascade.
+
+Kubernetes et Docker
+
+* Exécuter les traitements dans des pods Kubernetes.
+* Définir les ressources demandées et les limites.
+* Analyser les OOM Kill et les codes de sortie -9.
+* Adapter la mémoire selon les traitements.
+* Diagnostiquer les évictions et problèmes de capacité.
+* Analyser la différence entre mémoire réservée et mémoire réellement consommée.
+* Maintenir ou faire évoluer les images Docker.
+* Travailler avec les contraintes des namespaces et de l’infrastructure CAGIP/ISAP.
+
+Stockage et bases de données
+
+* Organiser les inputs, outputs et logs dans S3.
+* Gérer les chemins par asofdate et asofdateflow.
+* Manipuler des fichiers Parquet.
+* Charger et interroger les données dans Vertica.
+* Optimiser les requêtes SQL.
+* Maintenir la cohérence entre le stockage objet et les tables de restitution.
+
+Déploiement
+
+* Utiliser Git et GitLab.
+* Participer à la CI/CD.
+* Accompagner les déploiements avec ArgoCD.
+* Gérer les configurations entre INT, PREPROD et PROD.
+* Participer aux mises en production et à leur validation.
+* Assurer la stabilisation après déploiement.
+
+⸻
+
+6. Coordination et rôle de référent
+
+Une partie essentielle de ton rôle n’apparaît probablement dans aucun ticket.
+
+Coordination technique
+
+* Faire le lien entre les développeurs, l’infrastructure et la production.
+* Identifier l’équipe responsable lorsqu’un incident traverse plusieurs composants.
+* Présenter les problèmes avec suffisamment de précision pour faciliter leur résolution.
+* Suivre les actions jusqu’à leur clôture.
+* Anticiper les dépendances et les blocages avant un déploiement.
+
+Coordination fonctionnelle
+
+* Recueillir les besoins des métiers.
+* Organiser ou participer aux ateliers.
+* Reformuler les demandes.
+* Expliquer les contraintes techniques.
+* Présenter les résultats et les écarts.
+* Obtenir les validations nécessaires.
+* Accompagner l’onboarding des nouveaux périmètres et utilisateurs.
+
+Transmission
+
+* Aider les nouveaux développeurs.
+* Expliquer l’architecture et les règles existantes.
+* Relire ou orienter les développements.
+* Répondre aux questions sur l’historique des décisions.
+* Documenter les comportements attendus.
+* Produire des comptes rendus et supports de présentation.
+* Conserver la mémoire du projet depuis son lancement.
